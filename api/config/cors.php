@@ -1,6 +1,6 @@
 <?php
 /**
- * Simple headers configuration without CORS
+ * Basic headers configuration
  */
 
 function setBasicHeaders() {

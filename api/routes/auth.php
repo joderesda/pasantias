@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../config/database.php';
 
 /**
- * Authentication routes without JWT
+ * Authentication routes
  */
 class AuthRoutes {
     private $db;
