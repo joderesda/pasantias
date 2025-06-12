@@ -29,14 +29,21 @@ const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
-        {/* Encabezado con ícono */}
+        {/* Logo y encabezado */}
         <div>
-          <div className="flex justify-center">
-            <LogIn className="h-12 w-12 text-green-600" />
+          <div className="flex justify-center mb-6">
+            <img 
+              src="/logo-odec.jpeg" 
+              alt="ODEC Logo" 
+              className="h-24 w-auto object-contain"
+            />
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Sign in to your account
+          <h2 className="mt-6 text-center text-2xl font-extrabold text-gray-900">
+            Observatorio de Convivencia y Seguridad Ciudadana del Magdalena
           </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Iniciar sesión en su cuenta
+          </p>
         </div>
         
         {/* Formulario de login */}
@@ -44,14 +51,14 @@ const LoginPage: React.FC = () => {
           <div className="rounded-md shadow-sm -space-y-px">
             {/* Campo de usuario */}
             <div>
-              <label htmlFor="username" className="sr-only">Username</label>
+              <label htmlFor="username" className="sr-only">Usuario</label>
               <input
                 id="username"
                 name="username"
                 type="text"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
-                placeholder="Username"
+                placeholder="Usuario"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
@@ -59,14 +66,14 @@ const LoginPage: React.FC = () => {
             
             {/* Campo de contraseña */}
             <div>
-              <label htmlFor="password" className="sr-only">Password</label>
+              <label htmlFor="password" className="sr-only">Contraseña</label>
               <input
                 id="password"
                 name="password"
                 type="password"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-green-500 focus:border-green-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
+                placeholder="Contraseña"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -78,16 +85,26 @@ const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Signing in...' : 'Sign in'}
+              {isLoading ? (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Iniciando sesión...
+                </div>
+              ) : (
+                <>
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Iniciar Sesión
+                </>
+              )}
             </button>
           </div>
 
           {/* Enlace a registro */}
           <div className="text-center">
             <Link to="/register" className="text-sm text-green-600 hover:text-green-500">
-              Don't have an account? Register here
+              ¿No tienes una cuenta? Regístrate aquí
             </Link>
           </div>
         </form>
