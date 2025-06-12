@@ -1,0 +1,16 @@
+{
+    "name": "form-builder/api",
+    "description": "Form Builder PHP API",
+    "type": "project",
+    "require": {
+        "php": ">=7.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "FormBuilder\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
