@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 // CONFIGURACIÓN DE API
 // ======================
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost/api';
+const API_BASE = '/api';
 
 // ======================
 // TIPOS Y CONFIGURACIONES
@@ -148,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: { 
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       });
 
@@ -179,7 +180,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       await fetch(`${API_BASE}/auth/logout`, {
-        method: 'POST'
+        method: 'POST',
+        credentials: 'include'
       });
     } catch (error) {
       console.error('Error during logout:', error);
@@ -209,6 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify(payload)
       });
 

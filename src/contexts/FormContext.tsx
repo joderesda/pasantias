@@ -119,7 +119,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [state, dispatch] = useReducer(formReducer, initialState);
   const { user } = useAuth();
   const { t } = useTranslation();
-  const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost/api';
+  const API_BASE = '/api';
 
   // Cargar formularios cuando el usuario cambia
   useEffect(() => {
@@ -135,7 +135,9 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms`);
+      const response = await fetch(`${API_BASE}/forms`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(t('error_loading_forms'));
@@ -159,7 +161,9 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms/${id}`);
+      const response = await fetch(`${API_BASE}/forms/${id}`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(t('form_not_found'));
@@ -183,7 +187,9 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms/${formId}/responses`);
+      const response = await fetch(`${API_BASE}/forms/${formId}/responses`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(t('error_loading_responses'));
@@ -240,6 +246,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify(body)
       });
       
@@ -279,7 +286,8 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dispatch({ type: 'SET_LOADING', payload: true });
       
       const response = await fetch(`${API_BASE}/forms/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       
       if (!response.ok) {
@@ -306,9 +314,10 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Prepara los datos de la respuesta
       const responseToSave = {
-        ...responseData,
-        id: uuidv4(),
-        createdAt: new Date().toISOString()
+        formId: responseData.formId,
+        formVersion: responseData.formVersion,
+        responses: responseData.responses,
+        updatedOffline: responseData.updatedOffline || false
       };
       
       console.log('Guardando respuesta:', responseToSave);
@@ -318,6 +327,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify(responseToSave)
       });
       
@@ -326,11 +336,14 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(errorData.message || t('error_saving_response'));
       }
       
-      const savedResponse = await response.json();
-      dispatch({ type: 'ADD_RESPONSE', payload: savedResponse });
+      const result = await response.json();
+      
+      // Reload responses for this form
+      await loadResponses(responseData.formId);
+      
       toast.success(t('response_saved_successfully'));
       
-      return savedResponse.id;
+      return result.id;
     } catch (error: any) {
       console.error('Error saving response:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
@@ -349,7 +362,8 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       dispatch({ type: 'SET_LOADING', payload: true });
       
       const response = await fetch(`${API_BASE}/responses/${responseId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       });
       
       if (!response.ok) {
@@ -379,6 +393,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify(formsData)
       });
       
@@ -410,6 +425,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify(responsesData)
       });
       
@@ -441,7 +457,9 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms/export`);
+      const response = await fetch(`${API_BASE}/forms/export`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(t('error_exporting_forms'));
@@ -467,7 +485,9 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms/${formId}/responses/export`);
+      const response = await fetch(`${API_BASE}/forms/${formId}/responses/export`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(t('error_exporting_responses'));
