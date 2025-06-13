@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Edit, Eye, Trash2, BarChart, Download } from 'lucide-react'; // Íconos
 import { useForm } from '../../contexts/FormContext'; // Contexto de formularios
@@ -27,6 +27,7 @@ const FormsList: React.FC = () => {
   // Estados locales
   const [formToDelete, setFormToDelete] = useState<string | null>(null); // ID del formulario a eliminar
   const [searchTerm, setSearchTerm] = useState(''); // Término de búsqueda
+  const [responsesLoaded, setResponsesLoaded] = useState<Set<string>>(new Set()); // Track which forms have responses loaded
 
   // ======================
   // EFECTOS SECUNDARIOS
@@ -36,29 +37,35 @@ const FormsList: React.FC = () => {
   useEffect(() => {
     console.log('FormsList mounted, loading forms...');
     loadForms();
-  }, [loadForms]);
+  }, []); // Solo se ejecuta una vez al montar
 
   // Debug: Log cuando cambian los formularios
   useEffect(() => {
     console.log('Forms updated in FormsList:', forms);
   }, [forms]);
 
-  // Carga las respuestas para cada formulario
-  useEffect(() => {
-    const loadAllResponses = async () => {
-      for (const form of forms) {
-        try {
-          await loadResponses(form.id);
-        } catch (error) {
-          console.error(`Error loading responses for form ${form.id}:`, error);
-        }
+  // Función memoizada para cargar respuestas
+  const loadResponsesForForm = useCallback(async (formId: string) => {
+    if (!responsesLoaded.has(formId)) {
+      try {
+        await loadResponses(formId);
+        setResponsesLoaded(prev => new Set([...prev, formId]));
+      } catch (error) {
+        console.error(`Error loading responses for form ${formId}:`, error);
       }
-    };
-    
-    if (forms.length > 0) {
-      loadAllResponses();
     }
-  }, [forms, loadResponses]);
+  }, [loadResponses, responsesLoaded]);
+
+  // Carga las respuestas para cada formulario (solo una vez por formulario)
+  useEffect(() => {
+    if (forms.length > 0) {
+      forms.forEach(form => {
+        if (!responsesLoaded.has(form.id)) {
+          loadResponsesForForm(form.id);
+        }
+      });
+    }
+  }, [forms, loadResponsesForForm]);
 
   // ======================
   // FUNCIONES UTILITARIAS
@@ -120,12 +127,15 @@ const FormsList: React.FC = () => {
           </div>
         </div>
 
-        {/* Debug info */}
-        <div className="mb-4 p-2 bg-gray-100 rounded text-sm">
-          <p>Debug: Forms count: {forms.length}</p>
-          <p>Debug: Is loading: {isLoading.toString()}</p>
-          <p>Debug: User role: {user?.role}</p>
-        </div>
+        {/* Debug info - Solo en desarrollo */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-2 bg-gray-100 rounded text-sm">
+            <p>Debug: Forms count: {forms.length}</p>
+            <p>Debug: Is loading: {isLoading.toString()}</p>
+            <p>Debug: User role: {user?.role}</p>
+            <p>Debug: Responses loaded for: {Array.from(responsesLoaded).join(', ')}</p>
+          </div>
+        )}
 
         {/* Contenido principal */}
         {isLoading ? (

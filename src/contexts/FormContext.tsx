@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Form, FormResponse, FormContextState } from '../types';
 import toast from 'react-hot-toast';
@@ -134,18 +134,10 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { t } = useTranslation();
   const API_BASE = '/api';
 
-  // Cargar formularios cuando el usuario cambia
-  useEffect(() => {
-    if (user) {
-      console.log('User authenticated, loading forms...');
-      loadForms();
-    }
-  }, [user]);
-
   /**
    * Carga todos los formularios desde la API
    */
-  const loadForms = async () => {
+  const loadForms = useCallback(async () => {
     try {
       console.log('Iniciando carga de formularios...');
       dispatch({ type: 'SET_LOADING', payload: true });
@@ -177,12 +169,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Carga un formulario específico por ID
    */
-  const loadForm = async (id: string) => {
+  const loadForm = useCallback(async (id: string) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -205,15 +197,13 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Carga las respuestas de un formulario específico
    */
-  const loadResponses = async (formId: string) => {
+  const loadResponses = useCallback(async (formId: string) => {
     try {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      
       const response = await fetch(`${API_BASE}/forms/${formId}/responses`, {
         credentials: 'include'
       });
@@ -228,17 +218,15 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error loading responses:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
       toast.error(t('error_loading_responses'));
-    } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Guarda o actualiza un formulario en la API
    * @param formData - Datos del formulario a guardar
    * @returns Promise con el ID del formulario guardado
    */
-  const saveForm = async (
+  const saveForm = useCallback(async (
     formData: Omit<Form, 'id' | 'createdAt' | 'updatedAt' | 'version'> & { id?: string }
   ) => {
     try {
@@ -304,12 +292,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Elimina un formulario de la API
    */
-  const deleteForm = async (id: string) => {
+  const deleteForm = useCallback(async (id: string) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -331,12 +319,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Guarda una respuesta de formulario en la API
    */
-  const saveResponse = async (responseData: Omit<FormResponse, 'id' | 'createdAt'>) => {
+  const saveResponse = useCallback(async (responseData: Omit<FormResponse, 'id' | 'createdAt'>) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -380,12 +368,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t, loadResponses]);
 
   /**
    * Elimina una respuesta de formulario de la API
    */
-  const deleteResponse = async (formId: string, responseId: string) => {
+  const deleteResponse = useCallback(async (formId: string, responseId: string) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -407,12 +395,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Importa múltiples formularios a la API
    */
-  const importForms = async (formsData: Form[]) => {
+  const importForms = useCallback(async (formsData: Form[]) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -439,12 +427,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t, loadForms]);
 
   /**
    * Importa múltiples respuestas a la API
    */
-  const importResponses = async (responsesData: FormResponse[]) => {
+  const importResponses = useCallback(async (responsesData: FormResponse[]) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -476,12 +464,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t, loadResponses]);
 
   /**
    * Exporta todos los formularios desde la API
    */
-  const exportForms = async () => {
+  const exportForms = useCallback(async () => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -504,12 +492,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
 
   /**
    * Exporta respuestas de un formulario específico desde la API
    */
-  const exportFormResponses = async (formId: string) => {
+  const exportFormResponses = useCallback(async (formId: string) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -532,7 +520,15 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, [t]);
+
+  // Cargar formularios cuando el usuario cambia (solo una vez)
+  useEffect(() => {
+    if (user) {
+      console.log('User authenticated, loading forms...');
+      loadForms();
+    }
+  }, [user, loadForms]);
 
   // Valor del contexto que se proveerá a los componentes hijos
   const value = {
