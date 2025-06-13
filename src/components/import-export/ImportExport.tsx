@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { useForm } from '../../contexts/FormContext';
 import { useTranslation } from 'react-i18next';
-import { Upload, Download, FileText, Database } from 'lucide-react';
+import { Upload, Download, FileText, Database, FileSpreadsheet } from 'lucide-react';
 import { exportToExcel } from '../../utils/excelUtils';
-import { readExcelFile } from '../../utils/excelUtils';
+import { readExcelFile, readOfflineResponseFile } from '../../utils/excelUtils';
 import Spinner from '../ui/Spinner';
 import toast from 'react-hot-toast';
 
@@ -20,6 +20,7 @@ const ImportExport: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const responsesFileInputRef = useRef<HTMLInputElement>(null);
+  const offlineResponsesFileInputRef = useRef<HTMLInputElement>(null);
   
   const [importLoading, setImportLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -88,6 +89,32 @@ const ImportExport: React.FC = () => {
       setImportLoading(false);
       if (responsesFileInputRef.current) {
         responsesFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Importar respuestas desde formularios offline
+  const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      setImportLoading(true);
+      const data = await readOfflineResponseFile(file, forms);
+      
+      if (Array.isArray(data) && data.length > 0) {
+        await importResponses(data);
+        toast.success(`${data.length} respuesta(s) importada(s) correctamente`);
+      } else {
+        toast.error('El archivo no contiene respuestas válidas');
+      }
+    } catch (error) {
+      console.error('Error importing offline responses:', error);
+      toast.error('Error al importar las respuestas offline: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    } finally {
+      setImportLoading(false);
+      if (offlineResponsesFileInputRef.current) {
+        offlineResponsesFileInputRef.current.value = '';
       }
     }
   };
@@ -176,7 +203,7 @@ const ImportExport: React.FC = () => {
         </div>
         
         {/* Importar Respuestas */}
-        <div className="bg-white rounded-lg shadow-md p-6 md:col-span-2">
+        <div className="bg-white rounded-lg shadow-md p-6">
           <div className="flex items-center mb-4">
             <Database className="text-purple-600 mr-2" size={24} />
             <h2 className="text-xl font-bold text-gray-800">{t('import_responses')}</h2>
@@ -212,6 +239,48 @@ const ImportExport: React.FC = () => {
               className="hidden"
               accept=".xlsx"
               onChange={handleImportResponses}
+              disabled={importLoading}
+            />
+          </div>
+        </div>
+
+        {/* Importar Respuestas Offline */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center mb-4">
+            <FileSpreadsheet className="text-orange-600 mr-2" size={24} />
+            <h2 className="text-xl font-bold text-gray-800">Importar Respuestas Offline</h2>
+          </div>
+          
+          <p className="text-gray-600 mb-6">
+            Importa respuestas desde archivos Excel generados por formularios offline.
+          </p>
+          
+          <div 
+            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:bg-gray-50 transition-colors ${
+              importLoading ? 'opacity-50 cursor-not-allowed' : 'border-orange-300'
+            }`}
+            onClick={() => !importLoading && offlineResponsesFileInputRef.current?.click()}
+          >
+            {importLoading ? (
+              <Spinner />
+            ) : (
+              <>
+                <div className="flex justify-center mb-3">
+                  <FileSpreadsheet size={36} className="text-orange-500" />
+                </div>
+                <p className="text-gray-600">Arrastra y suelta archivos de respuestas offline o haz clic para seleccionar</p>
+                <p className="text-sm text-gray-500 mt-2">
+                  Archivos Excel (.xlsx) generados por formularios offline
+                </p>
+              </>
+            )}
+            
+            <input 
+              type="file"
+              ref={offlineResponsesFileInputRef}
+              className="hidden"
+              accept=".xlsx"
+              onChange={handleImportOfflineResponses}
               disabled={importLoading}
             />
           </div>
