@@ -51,7 +51,7 @@ try {
         $formsRoutes->handleRequest($method, '/forms');
         
     } elseif (preg_match('#^/responses/([^/]+)$#', $uri, $matches)) {
-        // Single response routes
+        // Single response routes (for updates and deletes)
         $responsesRoutes = new ResponsesRoutes();
         $responsesRoutes->handleRequest($method, '/responses', null, $matches[1]);
         

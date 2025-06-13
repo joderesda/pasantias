@@ -25,6 +25,8 @@ class ResponsesRoutes {
             $this->getFormResponses($formId, $user);
         } elseif ($method === 'POST' && $path === '/responses') {
             $this->createResponse($user);
+        } elseif ($method === 'PUT' && $responseId) {
+            $this->updateResponse($responseId, $user);
         } elseif ($method === 'POST' && $path === '/responses/import') {
             $this->importResponses($user);
         } elseif ($method === 'DELETE' && $responseId) {
@@ -53,6 +55,7 @@ class ResponsesRoutes {
             // Parse JSON fields and convert timestamps
             foreach ($responses as &$response) {
                 $response['responses'] = json_decode($response['responses'], true);
+                // Convert MySQL timestamp to milliseconds
                 $response['created_at'] = strtotime($response['created_at']) * 1000;
                 $response['updated_offline'] = (bool) $response['updated_offline'];
             }
@@ -98,19 +101,73 @@ class ResponsesRoutes {
             ]);
 
             // Get the created response ID
-            $responseId = $this->db->lastInsertId();
-            if (!$responseId) {
-                // For UUID, we need to get the last inserted record differently
-                $stmt = $this->db->prepare("SELECT id FROM responses WHERE user_id = ? ORDER BY created_at DESC LIMIT 1");
-                $stmt->execute([$user['id']]);
-                $result = $stmt->fetch();
-                $responseId = $result['id'];
-            }
+            $stmt = $this->db->prepare("SELECT id FROM responses WHERE user_id = ? ORDER BY created_at DESC LIMIT 1");
+            $stmt->execute([$user['id']]);
+            $result = $stmt->fetch();
+            $responseId = $result['id'];
 
             echo json_encode(['id' => $responseId]);
 
         } catch (Exception $e) {
             error_log("Error creating response: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['message' => 'Server error']);
+        }
+    }
+
+    /**
+     * Update existing response
+     */
+    private function updateResponse($responseId, $user) {
+        $input = json_decode(file_get_contents('php://input'), true);
+        
+        $formId = $input['formId'] ?? '';
+        $formVersion = $input['formVersion'] ?? 1;
+        $responses = $input['responses'] ?? [];
+        $updatedOffline = $input['updatedOffline'] ?? false;
+
+        if (empty($formId) || empty($responses)) {
+            http_response_code(400);
+            echo json_encode(['message' => 'Form ID and responses are required']);
+            return;
+        }
+
+        try {
+            // Check if response exists and user has permission
+            $checkStmt = $this->db->prepare("SELECT user_id FROM responses WHERE id = ?");
+            $checkStmt->execute([$responseId]);
+            $existingResponse = $checkStmt->fetch();
+
+            if (!$existingResponse) {
+                http_response_code(404);
+                echo json_encode(['message' => 'Response not found']);
+                return;
+            }
+
+            // Check permissions - users can update their own responses, admins can update any
+            if ($user['role'] !== 'admin' && $existingResponse['user_id'] !== $user['id']) {
+                http_response_code(403);
+                echo json_encode(['message' => 'Not authorized to update this response']);
+                return;
+            }
+
+            $stmt = $this->db->prepare("
+                UPDATE responses 
+                SET form_version = ?, responses = ?, updated_offline = ?
+                WHERE id = ?
+            ");
+            
+            $stmt->execute([
+                $formVersion,
+                json_encode($responses),
+                $updatedOffline ? 1 : 0,
+                $responseId
+            ]);
+
+            echo json_encode(['id' => $responseId, 'message' => 'Response updated successfully']);
+
+        } catch (Exception $e) {
+            error_log("Error updating response: " . $e->getMessage());
             http_response_code(500);
             echo json_encode(['message' => 'Server error']);
         }
@@ -166,15 +223,19 @@ class ResponsesRoutes {
             foreach ($input as $responseData) {
                 $stmt = $this->db->prepare("
                     INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
-                    VALUES (UUID(), ?, ?, ?, ?, ?, 1)
+                    VALUES (UUID(), ?, ?, ?, ?, FROM_UNIXTIME(?), 1)
                 ");
+                
+                // Convert timestamp from milliseconds to seconds for MySQL
+                $createdAtSeconds = isset($responseData['createdAt']) ? 
+                    intval($responseData['createdAt'] / 1000) : time();
                 
                 $stmt->execute([
                     $responseData['formId'],
                     $responseData['formVersion'],
                     json_encode($responseData['responses']),
                     $user['id'],
-                    $responseData['createdAt']
+                    $createdAtSeconds
                 ]);
             }
 

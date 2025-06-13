@@ -5,8 +5,9 @@ import { useForm } from '../../contexts/FormContext';
 import { FormResponse, QuestionResponse, Question } from '../../types';
 import Spinner from '../ui/Spinner';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Save, Download } from 'lucide-react';
-import { generateOfflineForm } from '../../utils/offlineFormUtils'; // Changed from excelUtils to offlineFormUtils
+import { ArrowLeft, Save, Download, Upload } from 'lucide-react';
+import { generateOfflineForm } from '../../utils/offlineFormUtils';
+import { readOfflineResponseFile } from '../../utils/excelUtils';
 
 const FormPreview: React.FC = () => {
   const { id, responseId } = useParams<{ id: string; responseId?: string }>();
@@ -18,12 +19,15 @@ const FormPreview: React.FC = () => {
     saveResponse, 
     responses, 
     loadResponses, 
-    isLoading 
+    isLoading,
+    forms,
+    importResponses
   } = useForm();
   
   const [formResponses, setResponses] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const loadFormData = async () => {
@@ -57,33 +61,51 @@ const FormPreview: React.FC = () => {
     }
   }, [responseId, responses, id]);
 
-  const getVisibleQuestions = () => {
+  // Función mejorada para obtener preguntas visibles incluyendo subpreguntas anidadas
+  const getVisibleQuestions = (): Question[] => {
     if (!currentForm?.questions) return [];
     
     const visibleQuestions: Question[] = [];
     const processedQuestions = new Set<string>();
     
-    currentForm.questions.forEach(question => {
-      if (!question.parentId && !processedQuestions.has(question.id)) {
-        visibleQuestions.push(question);
-        processedQuestions.add(question.id);
+    // Función recursiva para procesar preguntas y sus subpreguntas
+    const processQuestion = (question: Question) => {
+      if (processedQuestions.has(question.id)) return;
+      
+      visibleQuestions.push(question);
+      processedQuestions.add(question.id);
+      
+      // Si es una pregunta de selección, verificar subpreguntas
+      if (question.type === 'select' || question.type === 'multiselect') {
+        const parentResponse = formResponses[question.id];
         
-        if (question.type === 'select' || question.type === 'multiselect') {
-          const parentResponse = formResponses[question.id];
-          if (parentResponse) {
-            currentForm.questions.forEach(subQuestion => {
-              if (subQuestion.parentId === question.id && 
-                  ((question.type === 'select' && subQuestion.parentOptionId === parentResponse) ||
-                   (question.type === 'multiselect' && Array.isArray(parentResponse) && 
-                    parentResponse.includes(subQuestion.parentOptionId)))) {
-                visibleQuestions.push(subQuestion);
-                processedQuestions.add(subQuestion.id);
-              }
-            });
-          }
+        if (parentResponse) {
+          // Encontrar todas las subpreguntas de esta pregunta
+          const subQuestions = currentForm.questions.filter(q => q.parentId === question.id);
+          
+          subQuestions.forEach(subQuestion => {
+            let shouldShow = false;
+            
+            if (question.type === 'select') {
+              shouldShow = subQuestion.parentOptionId === parentResponse;
+            } else if (question.type === 'multiselect') {
+              shouldShow = Array.isArray(parentResponse) && 
+                          parentResponse.includes(subQuestion.parentOptionId);
+            }
+            
+            if (shouldShow) {
+              // Procesar recursivamente la subpregunta
+              processQuestion(subQuestion);
+            }
+          });
         }
       }
-    });
+    };
+    
+    // Procesar todas las preguntas principales
+    currentForm.questions
+      .filter(q => !q.parentId)
+      .forEach(processQuestion);
     
     return visibleQuestions;
   };
@@ -94,12 +116,19 @@ const FormPreview: React.FC = () => {
       
       const question = currentForm?.questions?.find(q => q.id === questionId);
       if (question && ['select', 'multiselect'].includes(question.type)) {
-        const subQuestions = currentForm?.questions?.filter(q => q.parentId === questionId);
-        subQuestions?.forEach(subQ => {
-          if (newResponses[subQ.id]) {
-            delete newResponses[subQ.id];
-          }
-        });
+        // Limpiar respuestas de subpreguntas cuando cambia la pregunta padre
+        const clearSubQuestions = (parentId: string) => {
+          const subQuestions = currentForm?.questions?.filter(q => q.parentId === parentId);
+          subQuestions?.forEach(subQ => {
+            if (newResponses[subQ.id]) {
+              delete newResponses[subQ.id];
+              // Recursivamente limpiar subpreguntas de subpreguntas
+              clearSubQuestions(subQ.id);
+            }
+          });
+        };
+        
+        clearSubQuestions(questionId);
       }
       
       return newResponses;
@@ -175,7 +204,6 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Changed from Excel export to HTML export
   const handleExportBlank = async () => {
     if (!currentForm) return;
     
@@ -194,6 +222,36 @@ const FormPreview: React.FC = () => {
     } catch (error) {
       console.error('Error exporting form:', error);
       toast.error(t('Error al exportar el formulario'));
+    }
+  };
+
+  // Nueva función para importar respuestas desde Excel
+  const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      setImporting(true);
+      const data = await readOfflineResponseFile(file, forms);
+      
+      if (Array.isArray(data) && data.length > 0) {
+        await importResponses(data);
+        toast.success(`${data.length} respuesta(s) importada(s) correctamente`);
+        
+        // Recargar respuestas si estamos en el formulario correcto
+        if (id && data.some(r => r.formId === id)) {
+          await loadResponses(id);
+        }
+      } else {
+        toast.error('El archivo no contiene respuestas válidas');
+      }
+    } catch (error) {
+      console.error('Error importing offline responses:', error);
+      toast.error('Error al importar las respuestas offline: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    } finally {
+      setImporting(false);
+      // Limpiar el input
+      event.target.value = '';
     }
   };
 
@@ -333,40 +391,75 @@ const FormPreview: React.FC = () => {
             )}
           </div>
           
-          {!responseId && (
-            <button
-              type="button"
-              onClick={handleExportBlank}
-              className="mt-4 md:mt-0 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors flex items-center"
-            >
-              <Download size={16} className="mr-2" /> {t('Exportar para completar sin conexión')}
-            </button>
-          )}
+          <div className="flex flex-col md:flex-row gap-3 mt-4 md:mt-0">
+            {!responseId && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportBlank}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors flex items-center"
+                >
+                  <Download size={16} className="mr-2" /> {t('Exportar para completar sin conexión')}
+                </button>
+                
+                <label className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors flex items-center cursor-pointer">
+                  <Upload size={16} className="mr-2" />
+                  {importing ? 'Importando...' : 'Importar Respuestas Excel'}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleImportOfflineResponses}
+                    className="hidden"
+                    disabled={importing}
+                  />
+                </label>
+              </>
+            )}
+          </div>
         </div>
         
         <div className="space-y-8 mt-8">
-          {getVisibleQuestions().map((question) => (
-            <div 
-              key={question.id} 
-              className={`border-b border-gray-200 pb-6 ${
-                question.parentId ? 'ml-8 border-l-2 border-l-green-200 pl-4' : ''
-              }`}
-            >
-              <div className="mb-2 flex items-start">
-                <label className="block text-gray-800 font-medium">
-                  {question.text}
-                  {question.required && <span className="text-red-500 ml-1">*</span>}
-                </label>
+          {getVisibleQuestions().map((question) => {
+            // Calcular el nivel de anidamiento
+            let nestLevel = 0;
+            let currentQuestion = question;
+            while (currentQuestion.parentId) {
+              nestLevel++;
+              currentQuestion = currentForm.questions.find(q => q.id === currentQuestion.parentId) || currentQuestion;
+              if (nestLevel > 10) break; // Prevenir bucles infinitos
+            }
+            
+            return (
+              <div 
+                key={question.id} 
+                className={`border-b border-gray-200 pb-6 ${
+                  nestLevel > 0 ? `ml-${Math.min(nestLevel * 8, 32)} border-l-2 border-l-green-200 pl-4` : ''
+                }`}
+                style={{
+                  marginLeft: nestLevel > 0 ? `${Math.min(nestLevel * 2, 8)}rem` : '0'
+                }}
+              >
+                <div className="mb-2 flex items-start">
+                  <label className="block text-gray-800 font-medium">
+                    {question.text}
+                    {question.required && <span className="text-red-500 ml-1">*</span>}
+                    {nestLevel > 0 && (
+                      <span className="text-sm text-gray-500 ml-2">
+                        (Subpregunta nivel {nestLevel})
+                      </span>
+                    )}
+                  </label>
+                </div>
+                
+                <div className="mt-2">
+                  {renderQuestionInput(question)}
+                  {errors[question.id] && (
+                    <p className="mt-1 text-sm text-red-500">{errors[question.id]}</p>
+                  )}
+                </div>
               </div>
-              
-              <div className="mt-2">
-                {renderQuestionInput(question)}
-                {errors[question.id] && (
-                  <p className="mt-1 text-sm text-red-500">{errors[question.id]}</p>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         
         <div className="flex justify-end mt-8">

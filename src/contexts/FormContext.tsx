@@ -14,6 +14,7 @@ type FormAction =
   | { type: 'UPDATE_FORM'; payload: Form }
   | { type: 'DELETE_FORM'; payload: string }
   | { type: 'ADD_RESPONSE'; payload: FormResponse }
+  | { type: 'UPDATE_RESPONSE'; payload: FormResponse }
   | { type: 'DELETE_RESPONSE'; payload: { formId: string, responseId: string } }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null };
@@ -37,6 +38,20 @@ const transformFormFromBackend = (backendForm: any): Form => {
     createdAt: new Date(backendForm.createdAt || backendForm.created_at).getTime(),
     updatedAt: new Date(backendForm.updatedAt || backendForm.updated_at).getTime(),
     version: parseInt(backendForm.version) || 1
+  };
+};
+
+// Función para convertir respuestas del backend al formato del frontend
+const transformResponseFromBackend = (backendResponse: any): FormResponse => {
+  return {
+    id: backendResponse.id,
+    formId: backendResponse.form_id || backendResponse.formId,
+    formVersion: parseInt(backendResponse.form_version || backendResponse.formVersion) || 1,
+    responses: Array.isArray(backendResponse.responses) ? backendResponse.responses : [],
+    createdAt: new Date(backendResponse.created_at || backendResponse.createdAt).getTime(),
+    updatedOffline: Boolean(backendResponse.updated_offline || backendResponse.updatedOffline),
+    userId: backendResponse.user_id || backendResponse.userId || '',
+    username: backendResponse.username || 'Usuario Anónimo'
   };
 };
 
@@ -82,6 +97,17 @@ const formReducer = (state: FormContextState, action: FormAction): FormContextSt
           [action.payload.formId]: [...existingResponses, action.payload]
         }
       };
+    case 'UPDATE_RESPONSE':
+      const formResponses = state.responses[action.payload.formId] || [];
+      return {
+        ...state,
+        responses: {
+          ...state.responses,
+          [action.payload.formId]: formResponses.map(response => 
+            response.id === action.payload.id ? action.payload : response
+          )
+        }
+      };
     case 'DELETE_RESPONSE':
       return {
         ...state,
@@ -108,7 +134,7 @@ interface FormContextProps extends FormContextState {
   loadResponses: (formId: string) => Promise<void>;
   saveForm: (form: Omit<Form, 'id' | 'createdAt' | 'updatedAt' | 'version'> & { id?: string }) => Promise<string>;
   deleteForm: (id: string) => Promise<void>;
-  saveResponse: (response: Omit<FormResponse, 'id' | 'createdAt'>) => Promise<string>;
+  saveResponse: (response: Omit<FormResponse, 'id' | 'createdAt'>, responseId?: string) => Promise<string>;
   deleteResponse: (formId: string, responseId: string) => Promise<void>;
   importForms: (formsData: Form[]) => Promise<void>;
   importResponses: (responsesData: FormResponse[]) => Promise<void>;
@@ -212,8 +238,17 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(t('error_loading_responses'));
       }
       
-      const responses = await response.json();
-      dispatch({ type: 'SET_RESPONSES', payload: { formId, responses } });
+      const backendResponses = await response.json();
+      console.log('Respuestas del backend:', backendResponses);
+      
+      // Transformar respuestas del backend
+      const transformedResponses = Array.isArray(backendResponses) 
+        ? backendResponses.map(transformResponseFromBackend)
+        : [];
+      
+      console.log('Respuestas transformadas:', transformedResponses);
+      
+      dispatch({ type: 'SET_RESPONSES', payload: { formId, responses: transformedResponses } });
     } catch (error: any) {
       console.error('Error loading responses:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
@@ -323,8 +358,12 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Guarda una respuesta de formulario en la API
+   * Modificado para manejar actualizaciones de respuestas existentes
    */
-  const saveResponse = useCallback(async (responseData: Omit<FormResponse, 'id' | 'createdAt'>) => {
+  const saveResponse = useCallback(async (
+    responseData: Omit<FormResponse, 'id' | 'createdAt'>, 
+    responseId?: string
+  ) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
@@ -338,8 +377,17 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('Guardando respuesta:', responseToSave);
       
-      const response = await fetch(`${API_BASE}/responses`, {
-        method: 'POST',
+      let url = `${API_BASE}/responses`;
+      let method = 'POST';
+      
+      // Si hay responseId, es una actualización
+      if (responseId) {
+        url += `/${responseId}`;
+        method = 'PUT';
+      }
+      
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json'
         },
@@ -359,7 +407,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       toast.success(t('response_saved_successfully'));
       
-      return result.id;
+      return result.id || responseId || '';
     } catch (error: any) {
       console.error('Error saving response:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });

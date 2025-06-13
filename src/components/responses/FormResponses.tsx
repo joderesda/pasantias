@@ -119,7 +119,8 @@ const FormResponses: React.FC = () => {
     };
 
     try {
-      await saveResponse(updatedResponse);
+      // Pasar el ID de la respuesta para actualizar en lugar de crear nueva
+      await saveResponse(updatedResponse, editingResponse);
       await loadResponses(id);
       setEditingResponse(null);
       setEditedValues({});
@@ -290,6 +291,9 @@ const FormResponses: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-800">
               Respuestas: {currentForm.name}
             </h1>
+            <p className="text-sm text-gray-600 mt-2">
+              Total de respuestas: {formResponses.length}
+            </p>
           </div>
           
           <div className="flex flex-col md:flex-row gap-3 mt-4 md:mt-0">
@@ -304,7 +308,7 @@ const FormResponses: React.FC = () => {
               }`}
             >
               {isExporting ? (
-                <Spinner size="sm\" color="white" />
+                <Spinner size="sm" color="white" />
               ) : (
                 <>
                   <Download size={16} className="mr-2" /> Exportar Respuestas
@@ -363,12 +367,14 @@ const FormResponses: React.FC = () => {
                     <tr key={response.id} className="hover:bg-gray-50">
                       <td className="py-3 px-4 text-sm border-b sticky left-0 bg-white">
                         <div className="flex flex-col">
-                          <span>{formatDateDisplay(response.createdAt)}</span>
+                          <span className="font-medium">
+                            {formatDateDisplay(response.createdAt)}
+                          </span>
                           <span className="text-sm text-gray-600 mt-1">
                             {response.username || 'Usuario Anónimo'}
                           </span>
                           <span className={`text-xs mt-1 px-2 py-1 rounded-full ${completionColorClass}`}>
-                            {completionPercentage}%
+                            {completionPercentage}% completo
                           </span>
                           {response.updatedOffline && (
                             <span className="text-xs mt-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full">
@@ -383,7 +389,9 @@ const FormResponses: React.FC = () => {
                           {editingResponse === response.id ? (
                             renderEditableCell(question, response.id)
                           ) : (
-                            getFormattedResponseValue(question.id, index)
+                            <div className="max-w-xs truncate" title={getFormattedResponseValue(question.id, index)}>
+                              {getFormattedResponseValue(question.id, index)}
+                            </div>
                           )}
                         </td>
                       ))}
