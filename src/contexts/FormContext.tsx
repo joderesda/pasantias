@@ -27,6 +27,19 @@ const initialState: FormContextState = {
   error: null
 };
 
+// Función para convertir datos del backend al formato del frontend
+const transformFormFromBackend = (backendForm: any): Form => {
+  return {
+    id: backendForm.id,
+    name: backendForm.name,
+    description: backendForm.description || '',
+    questions: Array.isArray(backendForm.questions) ? backendForm.questions : [],
+    createdAt: new Date(backendForm.createdAt || backendForm.created_at).getTime(),
+    updatedAt: new Date(backendForm.updatedAt || backendForm.updated_at).getTime(),
+    version: parseInt(backendForm.version) || 1
+  };
+};
+
 // Reducer para manejar el estado
 const formReducer = (state: FormContextState, action: FormAction): FormContextState => {
   switch (action.type) {
@@ -124,6 +137,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Cargar formularios cuando el usuario cambia
   useEffect(() => {
     if (user) {
+      console.log('User authenticated, loading forms...');
       loadForms();
     }
   }, [user]);
@@ -133,6 +147,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const loadForms = async () => {
     try {
+      console.log('Iniciando carga de formularios...');
       dispatch({ type: 'SET_LOADING', payload: true });
       
       const response = await fetch(`${API_BASE}/forms`, {
@@ -143,8 +158,18 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(t('error_loading_forms'));
       }
       
-      const forms = await response.json();
-      dispatch({ type: 'SET_FORMS', payload: forms });
+      const backendForms = await response.json();
+      console.log('Datos recibidos del backend:', backendForms);
+      
+      // Transformar los datos del backend al formato del frontend
+      const transformedForms = Array.isArray(backendForms) 
+        ? backendForms.map(transformFormFromBackend)
+        : [];
+      
+      console.log('Formularios procesados:', transformedForms);
+      
+      dispatch({ type: 'SET_FORMS', payload: transformedForms });
+      dispatch({ type: 'SET_ERROR', payload: null });
     } catch (error: any) {
       console.error('Error loading forms:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
@@ -169,8 +194,10 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(t('form_not_found'));
       }
       
-      const form = await response.json();
-      dispatch({ type: 'SET_CURRENT_FORM', payload: form });
+      const backendForm = await response.json();
+      const transformedForm = transformFormFromBackend(backendForm);
+      
+      dispatch({ type: 'SET_CURRENT_FORM', payload: transformedForm });
     } catch (error: any) {
       console.error('Error loading form:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
@@ -255,7 +282,8 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(errorData.message || t('error_saving_form'));
       }
       
-      const savedForm = await response.json();
+      const backendForm = await response.json();
+      const savedForm = transformFormFromBackend(backendForm);
       
       // Actualiza el estado según si es nuevo o actualización
       if (formData.id) {

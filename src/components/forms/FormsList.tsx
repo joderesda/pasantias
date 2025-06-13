@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom';
 import { Edit, Eye, Trash2, BarChart, Download } from 'lucide-react'; // Íconos
 import { useForm } from '../../contexts/FormContext'; // Contexto de formularios
 import { useAuth } from '../../contexts/AuthContext'; // Contexto de autenticación
-//import { useDatabase } from './DatabaseContext';
 import { useTranslation } from 'react-i18next'; // Internacionalización
 import { exportToExcel } from '../../utils/excelUtils'; // Utilidad para exportar
 import ConfirmDialog from '../ui/ConfirmDialog'; // Diálogo de confirmación
 import Spinner from '../ui/Spinner'; // Componente de carga
-console.log("Forms cargando");
+
 const FormsList: React.FC = () => {
   // ======================
   // HOOKS Y ESTADO
@@ -35,12 +34,16 @@ const FormsList: React.FC = () => {
 
   // Carga los formularios al montar el componente
   useEffect(() => {
+    console.log('FormsList mounted, loading forms...');
     loadForms();
-    console.log("Forms cargados:", forms);
-  }, []);
+  }, [loadForms]);
+
+  // Debug: Log cuando cambian los formularios
+  useEffect(() => {
+    console.log('Forms updated in FormsList:', forms);
+  }, [forms]);
 
   // Carga las respuestas para cada formulario
-  // En FormsList.tsx, modifica el useEffect para cargar respuestas:
   useEffect(() => {
     const loadAllResponses = async () => {
       for (const form of forms) {
@@ -55,7 +58,7 @@ const FormsList: React.FC = () => {
     if (forms.length > 0) {
       loadAllResponses();
     }
-  }, [forms]); // Solo se ejecuta cuando forms cambia
+  }, [forms, loadResponses]);
 
   // ======================
   // FUNCIONES UTILITARIAS
@@ -115,6 +118,13 @@ const FormsList: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+        </div>
+
+        {/* Debug info */}
+        <div className="mb-4 p-2 bg-gray-100 rounded text-sm">
+          <p>Debug: Forms count: {forms.length}</p>
+          <p>Debug: Is loading: {isLoading.toString()}</p>
+          <p>Debug: User role: {user?.role}</p>
         </div>
 
         {/* Contenido principal */}
