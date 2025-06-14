@@ -260,7 +260,7 @@ export const readExcelFile = async (file: File, type: 'forms' | 'responses'): Pr
   });
 };
 
-// Función corregida para leer respuestas de formularios offline
+// Función CORREGIDA para leer respuestas de formularios offline
 export const readOfflineResponseFile = async (file: File, currentForm: Form): Promise<FormResponse[]> => {
   const XLSX = await import('xlsx');
   
@@ -276,16 +276,20 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
         const data = new Uint8Array(e.target.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         
-        // Buscar la hoja de formulario
-        const formSheetName = workbook.SheetNames.find(name => 
-          name.toLowerCase().includes('formulario') || name.toLowerCase().includes('form')
-        ) || workbook.SheetNames[workbook.SheetNames.length - 1]; // Última hoja si no encuentra
+        // Buscar la hoja de respuestas (normalmente la primera o la que contiene "Respuestas")
+        const responseSheetName = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('respuesta') || 
+          name.toLowerCase().includes('response') ||
+          name === workbook.SheetNames[0] // Usar la primera hoja como fallback
+        ) || workbook.SheetNames[0];
         
-        if (!formSheetName) {
-          throw new Error('No se encontró una hoja de formulario válida');
+        if (!responseSheetName) {
+          throw new Error('No se encontró una hoja de respuestas válida');
         }
         
-        const worksheet = workbook.Sheets[formSheetName];
+        console.log('Usando hoja:', responseSheetName);
+        
+        const worksheet = workbook.Sheets[responseSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
         
         if (jsonData.length < 2) {
@@ -296,43 +300,68 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
         const dataRows = jsonData.slice(1);
         
         console.log('Headers encontrados:', headers);
-        console.log('Datos encontrados:', dataRows);
+        console.log('Filas de datos:', dataRows.length);
         
-        // Procesar las respuestas usando el formulario actual
+        // Crear un mapa de preguntas por texto para facilitar la búsqueda
+        const questionsByText = new Map<string, Question>();
+        currentForm.questions.forEach(question => {
+          // Normalizar el texto de la pregunta (quitar espacios extra)
+          const normalizedText = question.text.trim();
+          const indentedText = '    ' + normalizedText; // Para subpreguntas
+          
+          questionsByText.set(normalizedText, question);
+          questionsByText.set(indentedText, question);
+        });
+        
+        console.log('Preguntas mapeadas:', Array.from(questionsByText.keys()));
+        
         const processedResponses: FormResponse[] = [];
         
-        for (const row of dataRows) {
+        // Procesar cada fila de datos
+        for (let rowIndex = 0; rowIndex < dataRows.length; rowIndex++) {
+          const row = dataRows[rowIndex];
+          
           if (!row || row.length === 0) continue;
           
-          // Verificar si la fila tiene respuestas (no solo headers)
+          console.log(`Procesando fila ${rowIndex + 1}:`, row);
+          
+          // Verificar si la fila tiene respuestas (saltando Fecha y Usuario)
           const hasResponses = row.slice(2).some(cell => cell && cell !== '');
-          if (!hasResponses) continue;
+          if (!hasResponses) {
+            console.log(`Fila ${rowIndex + 1} no tiene respuestas, saltando...`);
+            continue;
+          }
           
           const responses: QuestionResponse[] = [];
           
-          // Procesar cada columna de respuesta (saltando Pregunta, Tipo)
-          for (let i = 0; i < row.length; i++) {
-            const questionText = row[0]; // Pregunta
-            const questionType = row[1]; // Tipo
-            const responseValue = row[2]; // Respuesta
-            const questionId = row[3]; // ID
+          // Procesar cada columna de respuesta (saltando Fecha[0] y Usuario[1])
+          for (let colIndex = 2; colIndex < headers.length && colIndex < row.length; colIndex++) {
+            const questionText = headers[colIndex];
+            const responseValue = row[colIndex];
             
-            if (!responseValue || responseValue === '' || !questionId) continue;
+            if (!responseValue || responseValue === '') continue;
             
-            // Encontrar la pregunta correspondiente en el formulario actual
-            const question = currentForm.questions.find(q => q.id === questionId);
+            console.log(`Procesando pregunta: "${questionText}" con respuesta: "${responseValue}"`);
+            
+            // Buscar la pregunta correspondiente
+            const question = questionsByText.get(questionText.trim());
             
             if (!question) {
-              console.warn(`Pregunta no encontrada para ID: ${questionId}`);
+              console.warn(`Pregunta no encontrada para texto: "${questionText}"`);
               continue;
             }
+            
+            console.log(`Pregunta encontrada: ${question.id} (${question.type})`);
             
             let processedValue: any = responseValue;
             
             // Convertir el valor según el tipo de pregunta
             switch (question.type) {
               case 'boolean':
-                processedValue = responseValue === 'true' || responseValue === 'Sí';
+                processedValue = responseValue === 'true' || 
+                                responseValue === 'Sí' || 
+                                responseValue === 'Si' ||
+                                responseValue === true;
                 break;
                 
               case 'number':
@@ -341,37 +370,34 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                 break;
                 
               case 'select':
-                // Si el valor contiene opciones (formato ID:texto), extraer el ID
-                if (typeof responseValue === 'string' && responseValue.includes(':')) {
-                  processedValue = responseValue.split(':')[0];
-                } else {
-                  // Buscar la opción que coincida con el texto
-                  const selectOption = question.options?.find(opt => opt.text === responseValue);
-                  processedValue = selectOption ? selectOption.id : responseValue;
-                }
+                // Buscar la opción que coincida con el texto de respuesta
+                const selectOption = question.options?.find(opt => 
+                  opt.text.trim().toLowerCase() === String(responseValue).trim().toLowerCase()
+                );
+                processedValue = selectOption ? selectOption.id : responseValue;
+                console.log(`Select: "${responseValue}" -> "${processedValue}"`);
                 break;
                 
               case 'multiselect':
                 // Dividir por comas y buscar las opciones correspondientes
-                const selectedTexts = responseValue.split(',').map((text: string) => text.trim());
+                const selectedTexts = String(responseValue).split(',').map(text => text.trim());
                 const selectedIds: string[] = [];
                 
-                selectedTexts.forEach((text: string) => {
-                  if (text.includes(':')) {
-                    selectedIds.push(text.split(':')[0]);
-                  } else {
-                    const option = question.options?.find(opt => opt.text === text);
-                    if (option) {
-                      selectedIds.push(option.id);
-                    }
+                selectedTexts.forEach(text => {
+                  const option = question.options?.find(opt => 
+                    opt.text.trim().toLowerCase() === text.toLowerCase()
+                  );
+                  if (option) {
+                    selectedIds.push(option.id);
                   }
                 });
                 
                 processedValue = selectedIds.length > 0 ? selectedIds : [responseValue];
+                console.log(`Multiselect: "${responseValue}" -> [${selectedIds.join(', ')}]`);
                 break;
                 
               case 'date':
-                // Convertir fecha si es necesario
+                // Manejar diferentes formatos de fecha
                 if (responseValue instanceof Date) {
                   processedValue = responseValue.toISOString().split('T')[0];
                 } else if (typeof responseValue === 'string') {
@@ -399,10 +425,12 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
               questionId: question.id,
               value: processedValue
             });
+            
+            console.log(`Respuesta agregada: ${question.id} = ${processedValue}`);
           }
           
           if (responses.length > 0) {
-            processedResponses.push({
+            const formResponse: FormResponse = {
               id: crypto.randomUUID(),
               formId: currentForm.id,
               formVersion: currentForm.version,
@@ -411,12 +439,16 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
               updatedOffline: true,
               userId: '',
               username: 'Usuario Offline'
-            });
+            };
+            
+            processedResponses.push(formResponse);
+            console.log(`Respuesta completa creada con ${responses.length} respuestas`);
           }
         }
         
-        console.log('Respuestas procesadas:', processedResponses);
+        console.log(`Total de respuestas procesadas: ${processedResponses.length}`);
         resolve(processedResponses);
+        
       } catch (error) {
         console.error('Error procesando archivo Excel:', error);
         reject(error);
