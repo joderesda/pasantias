@@ -138,7 +138,7 @@ class ResponsesRoutes {
             $checkStmt->execute([$responseId]);
             $existingResponse = $checkStmt->fetch();
 
-            if (!$existingResponse) {
+            if (!existingResponse) {
                 http_response_code(404);
                 echo json_encode(['message' => 'Response not found']);
                 return;
@@ -206,13 +206,25 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync) - FIXED
+     * Import multiple responses (for offline sync) - CORREGIDO
      */
     private function importResponses($user) {
-        $input = json_decode(file_get_contents('php://input'), true);
+        // Obtener el input raw
+        $rawInput = file_get_contents('php://input');
+        error_log("Import responses - Raw input: " . $rawInput);
+        
+        $input = json_decode($rawInput, true);
+
+        // Verificar que el JSON se decodificó correctamente
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("Import responses - JSON decode error: " . json_last_error_msg());
+            http_response_code(400);
+            echo json_encode(['message' => 'Invalid JSON format']);
+            return;
+        }
 
         // Debug: Log the received input
-        error_log("Import responses - Raw input: " . json_encode($input));
+        error_log("Import responses - Decoded input: " . json_encode($input));
 
         if (!is_array($input)) {
             error_log("Import responses - Input is not an array");
@@ -235,22 +247,32 @@ class ResponsesRoutes {
             foreach ($input as $index => $responseData) {
                 error_log("Processing response $index: " . json_encode($responseData));
                 
-                // Validate required fields
-                if (!isset($responseData['formId']) || empty($responseData['formId'])) {
-                    error_log("Response $index missing formId");
+                // Validar que responseData sea un array/objeto
+                if (!is_array($responseData)) {
+                    error_log("Response $index is not an array/object");
                     continue;
                 }
                 
-                if (!isset($responseData['responses']) || !is_array($responseData['responses']) || empty($responseData['responses'])) {
+                // Validar required fields con verificación más robusta
+                $formId = isset($responseData['formId']) ? $responseData['formId'] : null;
+                $responses = isset($responseData['responses']) ? $responseData['responses'] : null;
+                
+                error_log("Response $index - formId: " . ($formId ? $formId : 'NULL'));
+                error_log("Response $index - responses: " . (is_array($responses) ? json_encode($responses) : 'NOT_ARRAY'));
+                
+                if (empty($formId)) {
+                    error_log("Response $index missing or empty formId");
+                    continue;
+                }
+                
+                if (!is_array($responses) || empty($responses)) {
                     error_log("Response $index missing or invalid responses array");
                     continue;
                 }
 
-                $formId = $responseData['formId'];
-                $formVersion = $responseData['formVersion'] ?? 1;
-                $responses = $responseData['responses'];
-                $updatedOffline = $responseData['updatedOffline'] ?? true;
-                $createdAt = $responseData['createdAt'] ?? null;
+                $formVersion = isset($responseData['formVersion']) ? $responseData['formVersion'] : 1;
+                $updatedOffline = isset($responseData['updatedOffline']) ? $responseData['updatedOffline'] : true;
+                $createdAt = isset($responseData['createdAt']) ? $responseData['createdAt'] : null;
 
                 // Convert timestamp from milliseconds to seconds for MySQL if provided
                 $createdAtSeconds = null;
@@ -279,6 +301,8 @@ class ResponsesRoutes {
                 
                 $params[] = $updatedOffline ? 1 : 0;
                 
+                error_log("Executing query with params: " . json_encode($params));
+                
                 $stmt->execute($params);
                 $importedCount++;
                 
@@ -297,6 +321,7 @@ class ResponsesRoutes {
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Error importing responses: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
             echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
