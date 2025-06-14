@@ -502,13 +502,13 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('Respuestas válidas para importar:', validResponses);
       
-      // Convertir al formato que espera el backend PHP
+      // Convertir al formato que espera el backend PHP - CORREGIDO
       const backendResponses = validResponses.map(response => ({
-        formId: response.formId,
-        formVersion: response.formVersion,
-        responses: response.responses,
-        createdAt: response.createdAt,
-        updatedOffline: response.updatedOffline
+        formId: response.formId,           // Mantener formId (no form_id)
+        formVersion: response.formVersion, // Mantener formVersion (no form_version)
+        responses: response.responses,     // Mantener responses
+        createdAt: response.createdAt,     // Mantener createdAt
+        updatedOffline: response.updatedOffline // Mantener updatedOffline
       }));
       
       console.log('Datos convertidos para backend PHP:', backendResponses);
