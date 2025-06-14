@@ -206,47 +206,99 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync)
+     * Import multiple responses (for offline sync) - FIXED
      */
     private function importResponses($user) {
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // Debug: Log the received input
+        error_log("Import responses - Raw input: " . json_encode($input));
+
         if (!is_array($input)) {
+            error_log("Import responses - Input is not an array");
             http_response_code(400);
-            echo json_encode(['message' => 'Invalid input format']);
+            echo json_encode(['message' => 'Invalid input format - expected array']);
+            return;
+        }
+
+        if (empty($input)) {
+            error_log("Import responses - Input array is empty");
+            http_response_code(400);
+            echo json_encode(['message' => 'No responses provided']);
             return;
         }
 
         try {
             $this->db->beginTransaction();
+            $importedCount = 0;
 
-            foreach ($input as $responseData) {
+            foreach ($input as $index => $responseData) {
+                error_log("Processing response $index: " . json_encode($responseData));
+                
+                // Validate required fields
+                if (!isset($responseData['formId']) || empty($responseData['formId'])) {
+                    error_log("Response $index missing formId");
+                    continue;
+                }
+                
+                if (!isset($responseData['responses']) || !is_array($responseData['responses']) || empty($responseData['responses'])) {
+                    error_log("Response $index missing or invalid responses array");
+                    continue;
+                }
+
+                $formId = $responseData['formId'];
+                $formVersion = $responseData['formVersion'] ?? 1;
+                $responses = $responseData['responses'];
+                $updatedOffline = $responseData['updatedOffline'] ?? true;
+                $createdAt = $responseData['createdAt'] ?? null;
+
+                // Convert timestamp from milliseconds to seconds for MySQL if provided
+                $createdAtSeconds = null;
+                if ($createdAt) {
+                    if (is_numeric($createdAt)) {
+                        // If it's a large number, assume it's in milliseconds
+                        $createdAtSeconds = $createdAt > 10000000000 ? intval($createdAt / 1000) : intval($createdAt);
+                    }
+                }
+
                 $stmt = $this->db->prepare("
                     INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
-                    VALUES (UUID(), ?, ?, ?, ?, FROM_UNIXTIME(?), 1)
+                    VALUES (UUID(), ?, ?, ?, ?, " . ($createdAtSeconds ? "FROM_UNIXTIME(?)" : "NOW()") . ", ?)
                 ");
                 
-                // Convert timestamp from milliseconds to seconds for MySQL
-                $createdAtSeconds = isset($responseData['createdAt']) ? 
-                    intval($responseData['createdAt'] / 1000) : time();
+                $params = [
+                    $formId,
+                    $formVersion,
+                    json_encode($responses),
+                    $user['id']
+                ];
                 
-                $stmt->execute([
-                    $responseData['formId'],
-                    $responseData['formVersion'],
-                    json_encode($responseData['responses']),
-                    $user['id'],
-                    $createdAtSeconds
-                ]);
+                if ($createdAtSeconds) {
+                    $params[] = $createdAtSeconds;
+                }
+                
+                $params[] = $updatedOffline ? 1 : 0;
+                
+                $stmt->execute($params);
+                $importedCount++;
+                
+                error_log("Successfully imported response $index for form $formId");
             }
 
             $this->db->commit();
-            echo json_encode(['message' => 'Responses imported']);
+            
+            if ($importedCount > 0) {
+                echo json_encode(['message' => "Successfully imported $importedCount responses"]);
+            } else {
+                http_response_code(400);
+                echo json_encode(['message' => 'No valid responses found to import']);
+            }
 
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Error importing responses: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 }

@@ -502,16 +502,33 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('Respuestas válidas para importar:', validResponses);
       
-      // Convertir al formato que espera el backend PHP - CORREGIDO
-      const backendResponses = validResponses.map(response => ({
-        formId: response.formId,           // Mantener formId (no form_id)
-        formVersion: response.formVersion, // Mantener formVersion (no form_version)
-        responses: response.responses,     // Mantener responses
-        createdAt: response.createdAt,     // Mantener createdAt
-        updatedOffline: response.updatedOffline // Mantener updatedOffline
-      }));
+      // DEBUGGING: Verificar estructura exacta de los datos
+      console.log('🔍 DEBUGGING - Estructura de la primera respuesta válida:');
+      console.log('formId:', validResponses[0].formId);
+      console.log('formVersion:', validResponses[0].formVersion);
+      console.log('responses:', validResponses[0].responses);
+      console.log('createdAt:', validResponses[0].createdAt);
+      console.log('updatedOffline:', validResponses[0].updatedOffline);
       
-      console.log('Datos convertidos para backend PHP:', backendResponses);
+      // Convertir al formato que espera el backend PHP - VERIFICADO
+      const backendResponses = validResponses.map(response => {
+        const converted = {
+          formId: response.formId,           // String - ID del formulario
+          formVersion: response.formVersion, // Number - Versión del formulario
+          responses: response.responses,     // Array - Respuestas a las preguntas
+          createdAt: response.createdAt,     // Number - Timestamp
+          updatedOffline: response.updatedOffline // Boolean - Si fue actualizado offline
+        };
+        
+        console.log('🔄 Convirtiendo respuesta:', {
+          original: response,
+          converted: converted
+        });
+        
+        return converted;
+      });
+      
+      console.log('📦 Datos finales para enviar al backend:', JSON.stringify(backendResponses, null, 2));
       
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
@@ -522,11 +539,19 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(backendResponses)
       });
       
-      console.log('Respuesta del servidor:', response.status, response.statusText);
+      console.log('📡 Respuesta del servidor:', response.status, response.statusText);
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Error del servidor:', errorData);
+        console.error('❌ Error del servidor:', errorData);
+        
+        // Debugging adicional: mostrar exactamente qué está recibiendo el backend
+        console.log('🚨 DEBUGGING - Datos que se enviaron al backend:');
+        console.log('URL:', `${API_BASE}/responses/import`);
+        console.log('Method:', 'POST');
+        console.log('Headers:', { 'Content-Type': 'application/json' });
+        console.log('Body:', JSON.stringify(backendResponses, null, 2));
+        
         throw new Error(errorData.message || t('error_importing_responses'));
       }
       
