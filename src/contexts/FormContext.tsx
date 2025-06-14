@@ -482,53 +482,38 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Importa múltiples respuestas a la API - CORREGIDO PARA BACKEND PHP
    */
   const importResponses = useCallback(async (responsesData: FormResponse[]) => {
-    try {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      
-      console.log('Importando respuestas:', responsesData);
-      
-      // Validar que todas las respuestas tengan formId y responses
-      const validResponses = responsesData.filter(response => {
-        const isValid = response.formId && response.responses && response.responses.length > 0;
-        if (!isValid) {
-          console.warn('Respuesta inválida:', response);
-        }
-        return isValid;
-      });
-      
-      if (validResponses.length === 0) {
-        throw new Error('No hay respuestas válidas para importar');
+  try {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    
+    console.log('Importando respuestas:', responsesData);
+    
+    // Validar que todas las respuestas tengan formId y responses
+    const validResponses = responsesData.filter(response => {
+      const isValid = response.formId && response.responses && response.responses.length > 0;
+      if (!isValid) {
+        console.warn('Respuesta inválida:', response);
       }
-      
-      console.log('Respuestas válidas para importar:', validResponses);
-      
-      // DEBUGGING: Verificar estructura exacta de los datos
-      console.log('🔍 DEBUGGING - Estructura de la primera respuesta válida:');
-      console.log('formId:', validResponses[0].formId);
-      console.log('formVersion:', validResponses[0].formVersion);
-      console.log('responses:', validResponses[0].responses);
-      console.log('createdAt:', validResponses[0].createdAt);
-      console.log('updatedOffline:', validResponses[0].updatedOffline);
-      
-      // Convertir al formato que espera el backend PHP - VERIFICADO
-      const backendResponses = validResponses.map(response => {
-        const converted = {
-          formId: response.formId,           // String - ID del formulario
-          formVersion: response.formVersion, // Number - Versión del formulario
-          responses: response.responses,     // Array - Respuestas a las preguntas
-          createdAt: response.createdAt,     // Number - Timestamp
-          updatedOffline: response.updatedOffline // Boolean - Si fue actualizado offline
-        };
-        
-        console.log('🔄 Convirtiendo respuesta:', {
-          original: response,
-          converted: converted
-        });
-        
-        return converted;
-      });
-      
-      console.log('📦 Datos finales para enviar al backend:', JSON.stringify(backendResponses, null, 2));
+      return isValid;
+    });
+    
+    if (validResponses.length === 0) {
+      throw new Error('No hay respuestas válidas para importar');
+    }
+    
+    console.log('Respuestas válidas para importar:', validResponses);
+    
+    // Convertir al formato que espera el backend PHP
+    const backendResponses = validResponses.map(response => ({
+      formId: response.formId,
+      formVersion: response.formVersion,
+      responses: response.responses,
+      createdAt: response.createdAt,
+      updatedOffline: response.updatedOffline
+    }));
+    
+    // Enviar respuestas una por una
+    for (const responseObj of backendResponses) {
+      console.log('Enviando respuesta:', responseObj);
       
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
@@ -536,41 +521,32 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(backendResponses)
+        body: JSON.stringify(responseObj)
       });
-      
-      console.log('📡 Respuesta del servidor:', response.status, response.statusText);
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('❌ Error del servidor:', errorData);
-        
-        // Debugging adicional: mostrar exactamente qué está recibiendo el backend
-        console.log('🚨 DEBUGGING - Datos que se enviaron al backend:');
-        console.log('URL:', `${API_BASE}/responses/import`);
-        console.log('Method:', 'POST');
-        console.log('Headers:', { 'Content-Type': 'application/json' });
-        console.log('Body:', JSON.stringify(backendResponses, null, 2));
-        
+        console.error('Error en respuesta individual:', errorData);
         throw new Error(errorData.message || t('error_importing_responses'));
       }
-      
-      // Recargar respuestas para los formularios afectados
-      const formIds = new Set(validResponses.map(r => r.formId));
-      for (const formId of formIds) {
-        await loadResponses(formId);
-      }
-      
-      toast.success(t('responses_imported_successfully'));
-    } catch (error: any) {
-      console.error('Error importing responses:', error);
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-      toast.error(t('error_importing_responses'));
-      throw error;
-    } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [t, loadResponses]);
+    
+    // Recargar respuestas para los formularios afectados
+    const formIds = new Set(validResponses.map(r => r.formId));
+    for (const formId of formIds) {
+      await loadResponses(formId);
+    }
+    
+    toast.success(t('responses_imported_successfully'));
+  } catch (error: any) {
+    console.error('Error importing responses:', error);
+    dispatch({ type: 'SET_ERROR', payload: error.message });
+    toast.error(t('error_importing_responses'));
+    throw error;
+  } finally {
+    dispatch({ type: 'SET_LOADING', payload: false });
+  }
+}, [t, loadResponses]);
 
   /**
    * Exporta todos los formularios desde la API
