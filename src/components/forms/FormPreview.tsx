@@ -20,7 +20,6 @@ const FormPreview: React.FC = () => {
     responses, 
     loadResponses, 
     isLoading,
-    forms,
     importResponses
   } = useForm();
   
@@ -61,7 +60,7 @@ const FormPreview: React.FC = () => {
     }
   }, [responseId, responses, id]);
 
-  // Función mejorada para obtener preguntas visibles incluyendo subpreguntas anidadas
+  // Función recursiva mejorada para obtener preguntas visibles incluyendo subpreguntas anidadas
   const getVisibleQuestions = (): Question[] => {
     if (!currentForm?.questions) return [];
     
@@ -69,8 +68,8 @@ const FormPreview: React.FC = () => {
     const processedQuestions = new Set<string>();
     
     // Función recursiva para procesar preguntas y sus subpreguntas
-    const processQuestion = (question: Question) => {
-      if (processedQuestions.has(question.id)) return;
+    const processQuestion = (question: Question, depth: number = 0) => {
+      if (processedQuestions.has(question.id) || depth > 10) return; // Prevenir bucles infinitos
       
       visibleQuestions.push(question);
       processedQuestions.add(question.id);
@@ -95,7 +94,7 @@ const FormPreview: React.FC = () => {
             
             if (shouldShow) {
               // Procesar recursivamente la subpregunta
-              processQuestion(subQuestion);
+              processQuestion(subQuestion, depth + 1);
             }
           });
         }
@@ -105,7 +104,7 @@ const FormPreview: React.FC = () => {
     // Procesar todas las preguntas principales
     currentForm.questions
       .filter(q => !q.parentId)
-      .forEach(processQuestion);
+      .forEach(q => processQuestion(q));
     
     return visibleQuestions;
   };
@@ -190,7 +189,9 @@ const FormPreview: React.FC = () => {
         formId: id,
         formVersion: currentForm.version,
         responses: questionResponses,
-        updatedOffline: false
+        updatedOffline: false,
+        userId: '',
+        username: ''
       };
       
       await saveResponse(formResponse);
@@ -225,23 +226,33 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Nueva función para importar respuestas desde Excel
+  // Función corregida para importar respuestas desde Excel
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !currentForm) return;
     
     try {
       setImporting(true);
-      const data = await readOfflineResponseFile(file, forms);
+      console.log('Importando respuestas para formulario:', currentForm.id);
+      
+      // Usar el formulario actual directamente
+      const data = await readOfflineResponseFile(file, currentForm);
+      console.log('Datos procesados para importar:', data);
       
       if (Array.isArray(data) && data.length > 0) {
-        await importResponses(data);
+        // Asegurar que todas las respuestas tengan el formId correcto
+        const responsesWithCorrectFormId = data.map(response => ({
+          ...response,
+          formId: currentForm.id,
+          formVersion: currentForm.version
+        }));
+        
+        console.log('Enviando al backend:', responsesWithCorrectFormId);
+        await importResponses(responsesWithCorrectFormId);
         toast.success(`${data.length} respuesta(s) importada(s) correctamente`);
         
-        // Recargar respuestas si estamos en el formulario correcto
-        if (id && data.some(r => r.formId === id)) {
-          await loadResponses(id);
-        }
+        // Recargar respuestas
+        await loadResponses(currentForm.id);
       } else {
         toast.error('El archivo no contiene respuestas válidas');
       }
@@ -253,6 +264,20 @@ const FormPreview: React.FC = () => {
       // Limpiar el input
       event.target.value = '';
     }
+  };
+
+  const calculateNestLevel = (question: Question): number => {
+    let level = 0;
+    let currentQuestion = question;
+    
+    while (currentQuestion.parentId && level < 10) { // Prevenir bucles infinitos
+      const parentQuestion = currentForm?.questions.find(q => q.id === currentQuestion.parentId);
+      if (!parentQuestion) break;
+      level++;
+      currentQuestion = parentQuestion;
+    }
+    
+    return level;
   };
 
   const renderQuestionInput = (question: Question) => {
@@ -420,20 +445,13 @@ const FormPreview: React.FC = () => {
         
         <div className="space-y-8 mt-8">
           {getVisibleQuestions().map((question) => {
-            // Calcular el nivel de anidamiento
-            let nestLevel = 0;
-            let currentQuestion = question;
-            while (currentQuestion.parentId) {
-              nestLevel++;
-              currentQuestion = currentForm.questions.find(q => q.id === currentQuestion.parentId) || currentQuestion;
-              if (nestLevel > 10) break; // Prevenir bucles infinitos
-            }
+            const nestLevel = calculateNestLevel(question);
             
             return (
               <div 
                 key={question.id} 
                 className={`border-b border-gray-200 pb-6 ${
-                  nestLevel > 0 ? `ml-${Math.min(nestLevel * 8, 32)} border-l-2 border-l-green-200 pl-4` : ''
+                  nestLevel > 0 ? 'border-l-2 border-l-green-200 pl-4' : ''
                 }`}
                 style={{
                   marginLeft: nestLevel > 0 ? `${Math.min(nestLevel * 2, 8)}rem` : '0'

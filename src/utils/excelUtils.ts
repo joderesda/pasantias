@@ -85,7 +85,7 @@ export const exportToExcel = async (
   // Si estamos exportando respuestas de un formulario
   if (form && Array.isArray(data)) {
     const worksheetData: any[][] = [];
-    const headers = ['Fecha'];
+    const headers = ['Fecha', 'Usuario'];
     const questionMap = new Map<string, Question>();
     
     // Include all questions in headers
@@ -97,7 +97,10 @@ export const exportToExcel = async (
     worksheetData.push(headers);
     
     data.forEach((response: FormResponse) => {
-      const row: any[] = [new Date(response.createdAt)];
+      const row: any[] = [
+        new Date(response.createdAt),
+        response.username || 'Usuario Anónimo'
+      ];
       
       form.questions.forEach(question => {
         let value = '';
@@ -138,6 +141,8 @@ export const exportToExcel = async (
                   .map(o => o.text)
                   .join(', ');
               }
+            } else if (question.type === 'boolean') {
+              value = questionResponse.value === true ? 'Sí' : questionResponse.value === false ? 'No' : '';
             } else {
               value = questionResponse.value;
             }
@@ -255,8 +260,8 @@ export const readExcelFile = async (file: File, type: 'forms' | 'responses'): Pr
   });
 };
 
-// Función para leer respuestas de formularios offline
-export const readOfflineResponseFile = async (file: File, forms: Form[]): Promise<FormResponse[]> => {
+// Función corregida para leer respuestas de formularios offline
+export const readOfflineResponseFile = async (file: File, currentForm: Form): Promise<FormResponse[]> => {
   const XLSX = await import('xlsx');
   
   return new Promise((resolve, reject) => {
@@ -271,16 +276,16 @@ export const readOfflineResponseFile = async (file: File, forms: Form[]): Promis
         const data = new Uint8Array(e.target.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         
-        // Buscar la hoja de respuestas
-        const responsesSheetName = workbook.SheetNames.find(name => 
-          name.toLowerCase().includes('respuesta') || name.toLowerCase().includes('response')
-        ) || workbook.SheetNames[0];
+        // Buscar la hoja de formulario
+        const formSheetName = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('formulario') || name.toLowerCase().includes('form')
+        ) || workbook.SheetNames[workbook.SheetNames.length - 1]; // Última hoja si no encuentra
         
-        if (!responsesSheetName) {
-          throw new Error('No se encontró una hoja de respuestas válida');
+        if (!formSheetName) {
+          throw new Error('No se encontró una hoja de formulario válida');
         }
         
-        const worksheet = workbook.Sheets[responsesSheetName];
+        const worksheet = workbook.Sheets[formSheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
         
         if (jsonData.length < 2) {
@@ -290,61 +295,44 @@ export const readOfflineResponseFile = async (file: File, forms: Form[]): Promis
         const headers = jsonData[0] as string[];
         const dataRows = jsonData.slice(1);
         
-        // Buscar el formulario correspondiente basándose en las preguntas
-        let matchingForm: Form | null = null;
+        console.log('Headers encontrados:', headers);
+        console.log('Datos encontrados:', dataRows);
         
-        for (const form of forms) {
-          const formQuestionTexts = form.questions.map(q => 
-            q.parentId ? '    ' + q.text : q.text
-          );
-          
-          // Verificar si las preguntas coinciden (excluyendo la columna de fecha)
-          const fileQuestions = headers.slice(1);
-          const matchingQuestions = fileQuestions.filter(header => 
-            formQuestionTexts.includes(header)
-          );
-          
-          // Si coinciden al menos el 80% de las preguntas, consideramos que es el formulario correcto
-          if (matchingQuestions.length >= formQuestionTexts.length * 0.8) {
-            matchingForm = form;
-            break;
-          }
-        }
-        
-        if (!matchingForm) {
-          throw new Error('No se encontró un formulario que coincida con las preguntas del archivo');
-        }
-        
-        // Procesar las respuestas
+        // Procesar las respuestas usando el formulario actual
         const processedResponses: FormResponse[] = [];
         
         for (const row of dataRows) {
           if (!row || row.length === 0) continue;
           
-          const responses: QuestionResponse[] = [];
-          const dateValue = row[0];
+          // Verificar si la fila tiene respuestas (no solo headers)
+          const hasResponses = row.slice(2).some(cell => cell && cell !== '');
+          if (!hasResponses) continue;
           
-          // Procesar cada columna de respuesta
-          for (let i = 1; i < headers.length && i < row.length; i++) {
-            const questionText = headers[i];
-            const responseValue = row[i];
+          const responses: QuestionResponse[] = [];
+          
+          // Procesar cada columna de respuesta (saltando Pregunta, Tipo)
+          for (let i = 0; i < row.length; i++) {
+            const questionText = row[0]; // Pregunta
+            const questionType = row[1]; // Tipo
+            const responseValue = row[2]; // Respuesta
+            const questionId = row[3]; // ID
             
-            if (!responseValue || responseValue === '') continue;
+            if (!responseValue || responseValue === '' || !questionId) continue;
             
-            // Encontrar la pregunta correspondiente
-            const question = matchingForm.questions.find(q => {
-              const displayText = q.parentId ? '    ' + q.text : q.text;
-              return displayText === questionText;
-            });
+            // Encontrar la pregunta correspondiente en el formulario actual
+            const question = currentForm.questions.find(q => q.id === questionId);
             
-            if (!question) continue;
+            if (!question) {
+              console.warn(`Pregunta no encontrada para ID: ${questionId}`);
+              continue;
+            }
             
             let processedValue: any = responseValue;
             
             // Convertir el valor según el tipo de pregunta
             switch (question.type) {
               case 'boolean':
-                processedValue = responseValue === 'Sí' || responseValue === 'true';
+                processedValue = responseValue === 'true' || responseValue === 'Sí';
                 break;
                 
               case 'number':
@@ -353,9 +341,14 @@ export const readOfflineResponseFile = async (file: File, forms: Form[]): Promis
                 break;
                 
               case 'select':
-                // Buscar la opción que coincida con el texto
-                const selectOption = question.options?.find(opt => opt.text === responseValue);
-                processedValue = selectOption ? selectOption.id : responseValue;
+                // Si el valor contiene opciones (formato ID:texto), extraer el ID
+                if (typeof responseValue === 'string' && responseValue.includes(':')) {
+                  processedValue = responseValue.split(':')[0];
+                } else {
+                  // Buscar la opción que coincida con el texto
+                  const selectOption = question.options?.find(opt => opt.text === responseValue);
+                  processedValue = selectOption ? selectOption.id : responseValue;
+                }
                 break;
                 
               case 'multiselect':
@@ -364,9 +357,13 @@ export const readOfflineResponseFile = async (file: File, forms: Form[]): Promis
                 const selectedIds: string[] = [];
                 
                 selectedTexts.forEach((text: string) => {
-                  const option = question.options?.find(opt => opt.text === text);
-                  if (option) {
-                    selectedIds.push(option.id);
+                  if (text.includes(':')) {
+                    selectedIds.push(text.split(':')[0]);
+                  } else {
+                    const option = question.options?.find(opt => opt.text === text);
+                    if (option) {
+                      selectedIds.push(option.id);
+                    }
                   }
                 });
                 
@@ -405,34 +402,23 @@ export const readOfflineResponseFile = async (file: File, forms: Form[]): Promis
           }
           
           if (responses.length > 0) {
-            // Determinar la fecha de creación
-            let createdAt = Date.now();
-            
-            if (dateValue) {
-              if (dateValue instanceof Date) {
-                createdAt = dateValue.getTime();
-              } else if (typeof dateValue === 'string') {
-                // Intentar parsear la fecha
-                const parsedDate = new Date(dateValue);
-                if (!isNaN(parsedDate.getTime())) {
-                  createdAt = parsedDate.getTime();
-                }
-              }
-            }
-            
             processedResponses.push({
               id: crypto.randomUUID(),
-              formId: matchingForm.id,
-              formVersion: matchingForm.version,
+              formId: currentForm.id,
+              formVersion: currentForm.version,
               responses,
-              createdAt,
-              updatedOffline: true
+              createdAt: Date.now(),
+              updatedOffline: true,
+              userId: '',
+              username: 'Usuario Offline'
             });
           }
         }
         
+        console.log('Respuestas procesadas:', processedResponses);
         resolve(processedResponses);
       } catch (error) {
+        console.error('Error procesando archivo Excel:', error);
         reject(error);
       }
     };

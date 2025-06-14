@@ -2,12 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from '../../contexts/FormContext';
-import { Download, ArrowLeft, BarChart, Eye, Edit2, Trash2, Save, X } from 'lucide-react';
+import { Download, ArrowLeft, BarChart, Eye, Edit2, Trash2, Save, X, Filter, ChevronUp, ChevronDown } from 'lucide-react';
 import Spinner from '../ui/Spinner';
 import { exportToExcel } from '../../utils/excelUtils';
 import { formatDateDisplay } from '../../utils/dateUtils';
 import ConfirmDialog from '../ui/ConfirmDialog';
-import { FormResponse, QuestionResponse } from '../../types';
+import { FormResponse, QuestionResponse, Question } from '../../types';
+
+interface FilterState {
+  dateFrom: string;
+  dateTo: string;
+  questionFilters: Record<string, string | string[]>;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
 
 const FormResponses: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +26,14 @@ const FormResponses: React.FC = () => {
   const [responseToDelete, setResponseToDelete] = useState<string | null>(null);
   const [editingResponse, setEditingResponse] = useState<string | null>(null);
   const [editedValues, setEditedValues] = useState<Record<string, any>>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    dateFrom: '',
+    dateTo: '',
+    questionFilters: {},
+    sortBy: 'createdAt',
+    sortOrder: 'desc'
+  });
   
   useEffect(() => {
     if (id) {
@@ -25,6 +41,56 @@ const FormResponses: React.FC = () => {
       loadResponses(id);
     }
   }, [id]);
+
+  // Función recursiva para obtener todas las preguntas visibles incluyendo subpreguntas anidadas
+  const getAllVisibleQuestions = (): Question[] => {
+    if (!currentForm?.questions) return [];
+    
+    const allVisibleQuestions: Question[] = [];
+    const processedQuestions = new Set<string>();
+    
+    const processQuestion = (question: Question, responses: FormResponse[], depth: number = 0) => {
+      if (processedQuestions.has(question.id) || depth > 10) return;
+      
+      allVisibleQuestions.push(question);
+      processedQuestions.add(question.id);
+      
+      // Si es una pregunta de selección, incluir subpreguntas que han sido respondidas
+      if (question.type === 'select' || question.type === 'multiselect') {
+        const subQuestions = currentForm.questions.filter(q => q.parentId === question.id);
+        
+        subQuestions.forEach(subQuestion => {
+          // Verificar si esta subpregunta ha sido respondida en alguna respuesta
+          const hasBeenAnswered = responses.some(response => {
+            const parentResponse = response.responses.find(r => r.questionId === question.id);
+            if (!parentResponse) return false;
+            
+            let shouldShow = false;
+            if (question.type === 'select') {
+              shouldShow = subQuestion.parentOptionId === parentResponse.value;
+            } else if (question.type === 'multiselect') {
+              shouldShow = Array.isArray(parentResponse.value) && 
+                          parentResponse.value.includes(subQuestion.parentOptionId);
+            }
+            
+            return shouldShow && response.responses.some(r => r.questionId === subQuestion.id);
+          });
+          
+          if (hasBeenAnswered) {
+            processQuestion(subQuestion, responses, depth + 1);
+          }
+        });
+      }
+    };
+    
+    // Procesar todas las preguntas principales
+    const formResponses = responses[id || ''] || [];
+    currentForm.questions
+      .filter(q => !q.parentId)
+      .forEach(q => processQuestion(q, formResponses));
+    
+    return allVisibleQuestions;
+  };
 
   const calculateCompletionPercentage = (response: FormResponse) => {
     if (!currentForm) return 0;
@@ -54,7 +120,7 @@ const FormResponses: React.FC = () => {
     
     try {
       setIsExporting(true);
-      const formResponses = responses[id] || [];
+      const formResponses = getFilteredAndSortedResponses();
       await exportToExcel(
         formResponses, 
         `respuestas_${currentForm.name.replace(/\s+/g, '_').toLowerCase()}.xlsx`,
@@ -102,12 +168,12 @@ const FormResponses: React.FC = () => {
     const originalResponse = responses[id].find(r => r.id === editingResponse);
     if (!originalResponse) return;
 
-    const updatedResponses: QuestionResponse[] = currentForm.questions
-      .filter(q => !q.parentId)
+    const updatedResponses: QuestionResponse[] = getAllVisibleQuestions()
       .map(question => ({
         questionId: question.id,
         value: editedValues[question.id] ?? null
-      }));
+      }))
+      .filter(r => r.value !== null && r.value !== '');
 
     const updatedResponse: Omit<FormResponse, 'id' | 'createdAt'> = {
       formId: id,
@@ -119,7 +185,6 @@ const FormResponses: React.FC = () => {
     };
 
     try {
-      // Pasar el ID de la respuesta para actualizar en lugar de crear nueva
       await saveResponse(updatedResponse, editingResponse);
       await loadResponses(id);
       setEditingResponse(null);
@@ -128,40 +193,161 @@ const FormResponses: React.FC = () => {
       console.error('Error saving response:', error);
     }
   };
+
+  // Función para filtrar y ordenar respuestas
+  const getFilteredAndSortedResponses = () => {
+    if (!id) return [];
+    
+    let filteredResponses = [...(responses[id] || [])];
+    
+    // Filtro por fecha
+    if (filters.dateFrom) {
+      const fromDate = new Date(filters.dateFrom).getTime();
+      filteredResponses = filteredResponses.filter(r => r.createdAt >= fromDate);
+    }
+    
+    if (filters.dateTo) {
+      const toDate = new Date(filters.dateTo).getTime() + (24 * 60 * 60 * 1000) - 1; // Fin del día
+      filteredResponses = filteredResponses.filter(r => r.createdAt <= toDate);
+    }
+    
+    // Filtros por preguntas
+    Object.entries(filters.questionFilters).forEach(([questionId, filterValue]) => {
+      if (!filterValue || (Array.isArray(filterValue) && filterValue.length === 0)) return;
+      
+      filteredResponses = filteredResponses.filter(response => {
+        const questionResponse = response.responses.find(r => r.questionId === questionId);
+        if (!questionResponse) return false;
+        
+        if (Array.isArray(filterValue)) {
+          // Para filtros múltiples
+          return filterValue.some(value => {
+            if (Array.isArray(questionResponse.value)) {
+              return questionResponse.value.includes(value);
+            }
+            return questionResponse.value === value;
+          });
+        } else {
+          // Para filtros simples
+          if (Array.isArray(questionResponse.value)) {
+            return questionResponse.value.includes(filterValue);
+          }
+          return String(questionResponse.value).toLowerCase().includes(String(filterValue).toLowerCase());
+        }
+      });
+    });
+    
+    // Ordenamiento
+    filteredResponses.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+      
+      if (filters.sortBy === 'createdAt') {
+        aValue = a.createdAt;
+        bValue = b.createdAt;
+      } else if (filters.sortBy === 'username') {
+        aValue = a.username || '';
+        bValue = b.username || '';
+      } else {
+        // Ordenar por pregunta específica
+        const aResponse = a.responses.find(r => r.questionId === filters.sortBy);
+        const bResponse = b.responses.find(r => r.questionId === filters.sortBy);
+        aValue = aResponse?.value || '';
+        bValue = bResponse?.value || '';
+      }
+      
+      if (filters.sortOrder === 'asc') {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+    
+    return filteredResponses;
+  };
+
+  const handleFilterChange = (key: keyof FilterState, value: any) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleQuestionFilterChange = (questionId: string, value: string | string[]) => {
+    setFilters(prev => ({
+      ...prev,
+      questionFilters: {
+        ...prev.questionFilters,
+        [questionId]: value
+      }
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      dateFrom: '',
+      dateTo: '',
+      questionFilters: {},
+      sortBy: 'createdAt',
+      sortOrder: 'desc'
+    });
+  };
   
-  const getFormattedResponseValue = (questionId: string, responseIndex: number) => {
-    if (!currentForm || !id) return '';
+  const getFormattedResponseValue = (questionId: string, response: FormResponse) => {
+    if (!currentForm) return '';
     
-    const formResponses = responses[id] || [];
-    if (!formResponses[responseIndex]) return '';
-    
-    const response = formResponses[responseIndex].responses.find(r => r.questionId === questionId);
-    if (!response) return '';
+    const questionResponse = response.responses.find(r => r.questionId === questionId);
+    if (!questionResponse) return '';
     
     const question = currentForm.questions?.find(q => q.id === questionId);
     if (!question) return '';
     
+    // Verificar si la subpregunta debería estar visible
+    if (question.parentId) {
+      const parentQuestion = currentForm.questions.find(q => q.id === question.parentId);
+      if (parentQuestion) {
+        const parentResponse = response.responses.find(r => r.questionId === parentQuestion.id);
+        if (!parentResponse) return '';
+        
+        let shouldShow = false;
+        if (parentQuestion.type === 'select') {
+          shouldShow = question.parentOptionId === parentResponse.value;
+        } else if (parentQuestion.type === 'multiselect') {
+          shouldShow = Array.isArray(parentResponse.value) && 
+                      parentResponse.value.includes(question.parentOptionId);
+        }
+        
+        if (!shouldShow) return '';
+      }
+    }
+    
     switch (question.type) {
       case 'select':
-        const option = question.options?.find(o => o.id === response.value);
+        const option = question.options?.find(o => o.id === questionResponse.value);
         return option ? option.text : '';
         
       case 'multiselect':
-        if (!Array.isArray(response.value)) return '';
+        if (!Array.isArray(questionResponse.value)) return '';
         return question.options
-          ?.filter(o => response.value.includes(o.id))
+          ?.filter(o => questionResponse.value.includes(o.id))
           .map(o => o.text)
-          .join(', ');
+          .join(', ') || '';
         
       case 'boolean':
-        return response.value === true ? 'Sí' : response.value === false ? 'No' : '';
+        return questionResponse.value === true ? 'Sí' : questionResponse.value === false ? 'No' : '';
+        
+      case 'date':
+        if (questionResponse.value) {
+          return new Date(questionResponse.value as string).toLocaleDateString();
+        }
+        return '';
         
       default:
-        return response.value;
+        return String(questionResponse.value || '');
     }
   };
 
-  const renderEditableCell = (question: any, responseId: string) => {
+  const renderEditableCell = (question: Question, responseId: string) => {
     if (!currentForm) return null;
 
     const value = editedValues[question.id];
@@ -264,6 +450,79 @@ const FormResponses: React.FC = () => {
         return null;
     }
   };
+
+  const renderQuestionFilter = (question: Question) => {
+    const currentFilter = filters.questionFilters[question.id];
+    
+    switch (question.type) {
+      case 'select':
+        return (
+          <select
+            value={currentFilter || ''}
+            onChange={(e) => handleQuestionFilterChange(question.id, e.target.value)}
+            className="w-full px-2 py-1 border rounded text-xs"
+          >
+            <option value="">Todos</option>
+            {question.options?.map(option => (
+              <option key={option.id} value={option.id}>
+                {option.text}
+              </option>
+            ))}
+          </select>
+        );
+        
+      case 'multiselect':
+        return (
+          <div className="space-y-1">
+            {question.options?.map(option => (
+              <label key={option.id} className="flex items-center text-xs">
+                <input
+                  type="checkbox"
+                  checked={(currentFilter as string[] || []).includes(option.id)}
+                  onChange={(e) => {
+                    const current = (currentFilter as string[]) || [];
+                    const newValue = e.target.checked
+                      ? [...current, option.id]
+                      : current.filter(id => id !== option.id);
+                    handleQuestionFilterChange(question.id, newValue);
+                  }}
+                  className="mr-1"
+                />
+                {option.text}
+              </label>
+            ))}
+          </div>
+        );
+        
+      case 'boolean':
+        return (
+          <select
+            value={currentFilter || ''}
+            onChange={(e) => handleQuestionFilterChange(question.id, e.target.value)}
+            className="w-full px-2 py-1 border rounded text-xs"
+          >
+            <option value="">Todos</option>
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        );
+        
+      case 'text':
+      case 'number':
+        return (
+          <input
+            type="text"
+            value={currentFilter || ''}
+            onChange={(e) => handleQuestionFilterChange(question.id, e.target.value)}
+            placeholder="Filtrar..."
+            className="w-full px-2 py-1 border rounded text-xs"
+          />
+        );
+        
+      default:
+        return null;
+    }
+  };
   
   if (isLoading || !currentForm) {
     return (
@@ -273,8 +532,8 @@ const FormResponses: React.FC = () => {
     );
   }
   
-  const formResponses = responses[id || ''] || [];
-  const visibleQuestions = currentForm?.questions?.filter(q => !q.parentId) || [];
+  const formResponses = getFilteredAndSortedResponses();
+  const visibleQuestions = getAllVisibleQuestions();
   
   return (
     <div className="container mx-auto">
@@ -292,11 +551,20 @@ const FormResponses: React.FC = () => {
               Respuestas: {currentForm.name}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              Total de respuestas: {formResponses.length}
+              Total de respuestas: {responses[id || '']?.length || 0} | Filtradas: {formResponses.length}
             </p>
           </div>
           
           <div className="flex flex-col md:flex-row gap-3 mt-4 md:mt-0">
+            <button
+              type="button"
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center"
+            >
+              <Filter size={16} className="mr-2" /> 
+              {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+            </button>
+            
             <button
               type="button"
               onClick={handleExportResponses}
@@ -324,13 +592,82 @@ const FormResponses: React.FC = () => {
             </Link>
           </div>
         </div>
+
+        {/* Panel de filtros */}
+        {showFilters && (
+          <div className="bg-gray-50 p-4 rounded-lg mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fecha desde:
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fecha hasta:
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Ordenar por:
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={filters.sortBy}
+                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+                    className="flex-1 px-3 py-2 border rounded-md"
+                  >
+                    <option value="createdAt">Fecha</option>
+                    <option value="username">Usuario</option>
+                    {visibleQuestions.map(question => (
+                      <option key={question.id} value={question.id}>
+                        {question.text}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleFilterChange('sortOrder', filters.sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="px-3 py-2 border rounded-md hover:bg-gray-100"
+                  >
+                    {filters.sortOrder === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                onClick={clearFilters}
+                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+              >
+                Limpiar Filtros
+              </button>
+            </div>
+          </div>
+        )}
         
         {formResponses.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-lg">
             <div className="flex justify-center mb-4">
               <BarChart size={48} className="text-gray-400" />
             </div>
-            <p className="text-gray-500">{t('no_responses')}</p>
+            <p className="text-gray-500">
+              {(responses[id || '']?.length || 0) === 0 ? 'No hay respuestas' : 'No hay respuestas que coincidan con los filtros'}
+            </p>
             <p className="text-sm text-gray-400 mt-2">
               Complete el formulario o importe respuestas para verlas aquí
             </p>
@@ -344,14 +681,34 @@ const FormResponses: React.FC = () => {
                     Fecha / Usuario
                   </th>
                   
-                  {visibleQuestions.map((question) => (
-                    <th 
-                      key={question.id} 
-                      className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                    >
-                      {question.text}
-                    </th>
-                  ))}
+                  {visibleQuestions.map((question) => {
+                    const nestLevel = question.parentId ? 
+                      currentForm.questions.filter(q => q.id === question.parentId).length : 0;
+                    
+                    return (
+                      <th 
+                        key={question.id} 
+                        className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]"
+                      >
+                        <div className="space-y-2">
+                          <div className={nestLevel > 0 ? 'pl-4 border-l-2 border-l-green-300' : ''}>
+                            {question.text}
+                            {nestLevel > 0 && (
+                              <span className="text-xs text-gray-400 block">
+                                (Subpregunta)
+                              </span>
+                            )}
+                          </div>
+                          {showFilters && (
+                            <div className="mt-2">
+                              {renderQuestionFilter(question)}
+                            </div>
+                          )}
+                        </div>
+                      </th>
+                    );
+                  })}
+                  
                   <th className="py-3 px-4 border-b text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Acciones
                   </th>
@@ -359,7 +716,7 @@ const FormResponses: React.FC = () => {
               </thead>
               
               <tbody className="divide-y divide-gray-200">
-                {formResponses.map((response, index) => {
+                {formResponses.map((response) => {
                   const completionPercentage = calculateCompletionPercentage(response);
                   const completionColorClass = getCompletionColor(completionPercentage);
                   
@@ -389,8 +746,8 @@ const FormResponses: React.FC = () => {
                           {editingResponse === response.id ? (
                             renderEditableCell(question, response.id)
                           ) : (
-                            <div className="max-w-xs truncate" title={getFormattedResponseValue(question.id, index)}>
-                              {getFormattedResponseValue(question.id, index)}
+                            <div className="max-w-xs truncate" title={getFormattedResponseValue(question.id, response)}>
+                              {getFormattedResponseValue(question.id, response)}
                             </div>
                           )}
                         </td>

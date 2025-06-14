@@ -283,6 +283,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Prepara el cuerpo de la petición
       const body = {
+        ...(formData.id && { id: formData.id }), // Incluir ID solo si existe
         name: formData.name,
         description: formData.description || '',
         questions: formData.questions
@@ -478,11 +479,28 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [t, loadForms]);
 
   /**
-   * Importa múltiples respuestas a la API
+   * Importa múltiples respuestas a la API - CORREGIDO
    */
   const importResponses = useCallback(async (responsesData: FormResponse[]) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
+      
+      console.log('Importando respuestas:', responsesData);
+      
+      // Validar que todas las respuestas tengan formId y responses
+      const validResponses = responsesData.filter(response => {
+        const isValid = response.formId && response.responses && response.responses.length > 0;
+        if (!isValid) {
+          console.warn('Respuesta inválida:', response);
+        }
+        return isValid;
+      });
+      
+      if (validResponses.length === 0) {
+        throw new Error('No hay respuestas válidas para importar');
+      }
+      
+      console.log('Respuestas válidas para importar:', validResponses);
       
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
@@ -490,16 +508,19 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(responsesData)
+        body: JSON.stringify(validResponses)
       });
+      
+      console.log('Respuesta del servidor:', response.status, response.statusText);
       
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Error del servidor:', errorData);
         throw new Error(errorData.message || t('error_importing_responses'));
       }
       
       // Recargar respuestas para los formularios afectados
-      const formIds = new Set(responsesData.map(r => r.formId));
+      const formIds = new Set(validResponses.map(r => r.formId));
       for (const formId of formIds) {
         await loadResponses(formId);
       }
@@ -509,6 +530,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error importing responses:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
       toast.error(t('error_importing_responses'));
+      throw error;
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
