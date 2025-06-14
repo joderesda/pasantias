@@ -445,7 +445,6 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
           if (responses.length > 0) {
             // Extraer información de fecha y usuario si está disponible
             let createdAt = Date.now();
-            let username = 'Usuario Offline';
             
             // Intentar extraer fecha de la primera columna
             if (row[0]) {
@@ -457,12 +456,15 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                 if (!isNaN(parsedDate.getTime())) {
                   createdAt = parsedDate.getTime();
                 }
+              } else if (typeof dateValue === 'number') {
+                // Excel puede devolver fechas como números seriales
+                // Convertir número serial de Excel a fecha JavaScript
+                const excelEpoch = new Date(1900, 0, 1);
+                const jsDate = new Date(excelEpoch.getTime() + (dateValue - 2) * 24 * 60 * 60 * 1000);
+                if (!isNaN(jsDate.getTime())) {
+                  createdAt = jsDate.getTime();
+                }
               }
-            }
-            
-            // Intentar extraer usuario de la segunda columna
-            if (row[1] && typeof row[1] === 'string' && row[1].trim() !== '') {
-              username = row[1].trim();
             }
             
             const formResponse: FormResponse = {
@@ -472,13 +474,13 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
               responses,
               createdAt,
               updatedOffline: true,
-              userId: '',
-              username
+              userId: '', // Se asignará en el backend con el usuario autenticado
+              username: '' // Se asignará en el backend con el usuario autenticado
             };
             
             processedResponses.push(formResponse);
             console.log(`✅ Respuesta completa ${rowIndex + 1} creada con ${responses.length} respuestas`);
-            console.log(`   Usuario: ${username}, Fecha: ${new Date(createdAt).toLocaleString()}`);
+            console.log(`   Fecha: ${new Date(createdAt).toLocaleString()}`);
           } else {
             console.log(`❌ Fila ${rowIndex + 1} no generó respuestas válidas`);
           }

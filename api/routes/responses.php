@@ -206,7 +206,7 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync) - CORREGIDO CON DEBUGGING COMPLETO
+     * Import multiple responses (for offline sync) - CORREGIDO PARA MÚLTIPLES RESPUESTAS
      */
     private function importResponses($user) {
         // Obtener el input raw
@@ -303,7 +303,7 @@ class ResponsesRoutes {
                     $formId,
                     $formVersion,
                     json_encode($responses),
-                    $user['id']
+                    $user['id'] // Usar el ID del usuario autenticado
                 ];
                 
                 if ($createdAtSeconds) {
