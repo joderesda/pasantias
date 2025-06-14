@@ -260,7 +260,7 @@ export const readExcelFile = async (file: File, type: 'forms' | 'responses'): Pr
   });
 };
 
-// Función CORREGIDA para leer respuestas de formularios offline
+// Función CORREGIDA para leer respuestas de formularios offline - MEJORADA PARA MÚLTIPLES RESPUESTAS
 export const readOfflineResponseFile = async (file: File, currentForm: Form): Promise<FormResponse[]> => {
   const XLSX = await import('xlsx');
   
@@ -300,7 +300,7 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
         const dataRows = jsonData.slice(1);
         
         console.log('Headers encontrados:', headers);
-        console.log('Filas de datos:', dataRows.length);
+        console.log('Filas de datos encontradas:', dataRows.length);
         
         // Crear un mapa de preguntas por texto para facilitar la búsqueda
         const questionsByText = new Map<string, Question>();
@@ -321,9 +321,13 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
         for (let rowIndex = 0; rowIndex < dataRows.length; rowIndex++) {
           const row = dataRows[rowIndex];
           
-          if (!row || row.length === 0) continue;
+          if (!row || row.length === 0) {
+            console.log(`Fila ${rowIndex + 1} está vacía, saltando...`);
+            continue;
+          }
           
-          console.log(`Procesando fila ${rowIndex + 1}:`, row);
+          console.log(`\n=== Procesando fila ${rowIndex + 1} ===`);
+          console.log('Datos de la fila:', row);
           
           // Verificar si la fila tiene respuestas (saltando Fecha y Usuario)
           const hasResponses = row.slice(2).some(cell => cell && cell !== '');
@@ -333,25 +337,29 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
           }
           
           const responses: QuestionResponse[] = [];
+          let responseCount = 0;
           
           // Procesar cada columna de respuesta (saltando Fecha[0] y Usuario[1])
           for (let colIndex = 2; colIndex < headers.length && colIndex < row.length; colIndex++) {
             const questionText = headers[colIndex];
             const responseValue = row[colIndex];
             
-            if (!responseValue || responseValue === '') continue;
+            // Saltar celdas vacías
+            if (!responseValue || responseValue === '') {
+              continue;
+            }
             
-            console.log(`Procesando pregunta: "${questionText}" con respuesta: "${responseValue}"`);
+            console.log(`  Columna ${colIndex}: "${questionText}" = "${responseValue}"`);
             
             // Buscar la pregunta correspondiente
             const question = questionsByText.get(questionText.trim());
             
             if (!question) {
-              console.warn(`Pregunta no encontrada para texto: "${questionText}"`);
+              console.warn(`  ⚠️ Pregunta no encontrada para texto: "${questionText}"`);
               continue;
             }
             
-            console.log(`Pregunta encontrada: ${question.id} (${question.type})`);
+            console.log(`  ✅ Pregunta encontrada: ${question.id} (${question.type})`);
             
             let processedValue: any = responseValue;
             
@@ -362,11 +370,13 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                                 responseValue === 'Sí' || 
                                 responseValue === 'Si' ||
                                 responseValue === true;
+                console.log(`  Boolean: "${responseValue}" -> ${processedValue}`);
                 break;
                 
               case 'number':
                 processedValue = parseFloat(responseValue);
                 if (isNaN(processedValue)) processedValue = responseValue;
+                console.log(`  Number: "${responseValue}" -> ${processedValue}`);
                 break;
                 
               case 'select':
@@ -375,7 +385,7 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                   opt.text.trim().toLowerCase() === String(responseValue).trim().toLowerCase()
                 );
                 processedValue = selectOption ? selectOption.id : responseValue;
-                console.log(`Select: "${responseValue}" -> "${processedValue}"`);
+                console.log(`  Select: "${responseValue}" -> "${processedValue}"`);
                 break;
                 
               case 'multiselect':
@@ -393,7 +403,7 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                 });
                 
                 processedValue = selectedIds.length > 0 ? selectedIds : [responseValue];
-                console.log(`Multiselect: "${responseValue}" -> [${selectedIds.join(', ')}]`);
+                console.log(`  Multiselect: "${responseValue}" -> [${selectedIds.join(', ')}]`);
                 break;
                 
               case 'date':
@@ -415,10 +425,12 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
                     processedValue = responseValue;
                   }
                 }
+                console.log(`  Date: "${responseValue}" -> "${processedValue}"`);
                 break;
                 
               default:
                 processedValue = responseValue;
+                console.log(`  Text: "${responseValue}" -> "${processedValue}"`);
             }
             
             responses.push({
@@ -426,36 +438,68 @@ export const readOfflineResponseFile = async (file: File, currentForm: Form): Pr
               value: processedValue
             });
             
-            console.log(`Respuesta agregada: ${question.id} = ${processedValue}`);
+            responseCount++;
+            console.log(`  ✅ Respuesta agregada: ${question.id} = ${processedValue}`);
           }
           
           if (responses.length > 0) {
+            // Extraer información de fecha y usuario si está disponible
+            let createdAt = Date.now();
+            let username = 'Usuario Offline';
+            
+            // Intentar extraer fecha de la primera columna
+            if (row[0]) {
+              const dateValue = row[0];
+              if (dateValue instanceof Date) {
+                createdAt = dateValue.getTime();
+              } else if (typeof dateValue === 'string') {
+                const parsedDate = new Date(dateValue);
+                if (!isNaN(parsedDate.getTime())) {
+                  createdAt = parsedDate.getTime();
+                }
+              }
+            }
+            
+            // Intentar extraer usuario de la segunda columna
+            if (row[1] && typeof row[1] === 'string' && row[1].trim() !== '') {
+              username = row[1].trim();
+            }
+            
             const formResponse: FormResponse = {
               id: crypto.randomUUID(),
               formId: currentForm.id,
               formVersion: currentForm.version,
               responses,
-              createdAt: Date.now(),
+              createdAt,
               updatedOffline: true,
               userId: '',
-              username: 'Usuario Offline'
+              username
             };
             
             processedResponses.push(formResponse);
-            console.log(`Respuesta completa creada con ${responses.length} respuestas`);
+            console.log(`✅ Respuesta completa ${rowIndex + 1} creada con ${responses.length} respuestas`);
+            console.log(`   Usuario: ${username}, Fecha: ${new Date(createdAt).toLocaleString()}`);
+          } else {
+            console.log(`❌ Fila ${rowIndex + 1} no generó respuestas válidas`);
           }
         }
         
-        console.log(`Total de respuestas procesadas: ${processedResponses.length}`);
+        console.log(`\n🎉 RESUMEN: ${processedResponses.length} respuestas procesadas de ${dataRows.length} filas`);
+        
+        if (processedResponses.length === 0) {
+          throw new Error('No se pudieron procesar respuestas válidas del archivo Excel');
+        }
+        
         resolve(processedResponses);
         
       } catch (error) {
-        console.error('Error procesando archivo Excel:', error);
+        console.error('❌ Error procesando archivo Excel:', error);
         reject(error);
       }
     };
     
     reader.onerror = (error) => {
+      console.error('❌ Error leyendo archivo:', error);
       reject(error);
     };
     
