@@ -479,7 +479,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [t, loadForms]);
 
   /**
-   * Importa múltiples respuestas a la API - CORREGIDO
+   * Importa múltiples respuestas a la API - CORREGIDO PARA BACKEND PHP
    */
   const importResponses = useCallback(async (responsesData: FormResponse[]) => {
     try {
@@ -502,13 +502,24 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('Respuestas válidas para importar:', validResponses);
       
+      // Convertir al formato que espera el backend PHP
+      const backendResponses = validResponses.map(response => ({
+        formId: response.formId,
+        formVersion: response.formVersion,
+        responses: response.responses,
+        createdAt: response.createdAt,
+        updatedOffline: response.updatedOffline
+      }));
+      
+      console.log('Datos convertidos para backend PHP:', backendResponses);
+      
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(validResponses)
+        body: JSON.stringify(backendResponses)
       });
       
       console.log('Respuesta del servidor:', response.status, response.statusText);
