@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "php -S localhost:3000 -t api index.php",
+    "dev:api": "php -S localhost:3000 -t api",
     "dev:full": "concurrently \"npm run dev:api\" \"npm run dev\"",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
