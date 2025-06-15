@@ -49,24 +49,25 @@ class FormsRoutes {
     }
 
     /**
-     * Get all forms
+     * Get all forms - CORREGIDO: Todos los usuarios pueden ver todos los formularios
      */
     private function getForms($user) {
         try {
-            $query = "SELECT * FROM forms";
+            error_log("=== GET FORMS DEBUG START ===");
+            error_log("User requesting forms: " . json_encode($user));
+            
+            // CAMBIO: Todos los usuarios pueden ver todos los formularios
+            $query = "SELECT * FROM forms ORDER BY updated_at DESC";
             $params = [];
 
-            // If not admin, only show forms created by user
-            if ($user['role'] !== 'admin') {
-                $query .= " WHERE created_by = ?";
-                $params[] = $user['id'];
-            }
-
-            $query .= " ORDER BY updated_at DESC";
+            error_log("Query: " . $query);
+            error_log("Params: " . json_encode($params));
 
             $stmt = $this->db->prepare($query);
             $stmt->execute($params);
             $forms = $stmt->fetchAll();
+
+            error_log("Forms found: " . count($forms));
 
             // Parse JSON fields
             foreach ($forms as &$form) {
@@ -75,34 +76,41 @@ class FormsRoutes {
                 $form['updated_at'] = strtotime($form['updated_at']) * 1000;
             }
 
+            error_log("Forms processed successfully");
+            error_log("=== GET FORMS DEBUG END ===");
+
             echo json_encode($forms);
 
         } catch (Exception $e) {
             error_log("Error fetching forms: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Get single form
+     * Get single form - CORREGIDO: Todos los usuarios pueden ver cualquier formulario
      */
     private function getForm($id, $user) {
         try {
+            error_log("=== GET SINGLE FORM DEBUG START ===");
+            error_log("Form ID: " . $id);
+            error_log("User: " . json_encode($user));
+            
+            // CAMBIO: Todos los usuarios pueden ver cualquier formulario
             $query = "SELECT * FROM forms WHERE id = ?";
             $params = [$id];
 
-            // If not admin, verify ownership
-            if ($user['role'] !== 'admin') {
-                $query .= " AND created_by = ?";
-                $params[] = $user['id'];
-            }
+            error_log("Query: " . $query);
+            error_log("Params: " . json_encode($params));
 
             $stmt = $this->db->prepare($query);
             $stmt->execute($params);
             $form = $stmt->fetch();
 
             if (!$form) {
+                error_log("Form not found");
                 http_response_code(404);
                 echo json_encode(['message' => 'Form not found']);
                 return;
@@ -113,12 +121,16 @@ class FormsRoutes {
             $form['created_at'] = strtotime($form['created_at']) * 1000;
             $form['updated_at'] = strtotime($form['updated_at']) * 1000;
 
+            error_log("Form found and processed successfully");
+            error_log("=== GET SINGLE FORM DEBUG END ===");
+
             echo json_encode($form);
 
         } catch (Exception $e) {
             error_log("Error fetching form: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 
@@ -141,6 +153,9 @@ class FormsRoutes {
         }
 
         try {
+            error_log("=== CREATE FORM DEBUG START ===");
+            error_log("Creating form with data: " . json_encode($input));
+            
             $stmt = $this->db->prepare("
                 INSERT INTO forms (id, name, description, questions, created_by, created_at, updated_at, version) 
                 VALUES (UUID(), ?, ?, ?, ?, NOW(), NOW(), 1)
@@ -162,18 +177,22 @@ class FormsRoutes {
             $form['created_at'] = strtotime($form['created_at']) * 1000;
             $form['updated_at'] = strtotime($form['updated_at']) * 1000;
 
+            error_log("Form created successfully with ID: " . $form['id']);
+            error_log("=== CREATE FORM DEBUG END ===");
+
             http_response_code(201);
             echo json_encode($form);
 
         } catch (Exception $e) {
             error_log("Error creating form: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 
     /**
-     * Update form (admin only)
+     * Update form (admin only) - CORREGIDO: Actualizar en lugar de crear nuevo
      */
     private function updateForm($id, $user) {
         $this->auth->requireRole($user, 'admin');
@@ -191,40 +210,68 @@ class FormsRoutes {
         }
 
         try {
+            error_log("=== UPDATE FORM DEBUG START ===");
+            error_log("Updating form ID: " . $id);
+            error_log("Update data: " . json_encode($input));
+            
+            // Verificar que el formulario existe
+            $checkStmt = $this->db->prepare("SELECT id FROM forms WHERE id = ?");
+            $checkStmt->execute([$id]);
+            
+            if (!$checkStmt->fetch()) {
+                error_log("Form not found for update");
+                http_response_code(404);
+                echo json_encode(['message' => 'Form not found']);
+                return;
+            }
+
+            // Actualizar el formulario existente
             $stmt = $this->db->prepare("
                 UPDATE forms 
                 SET name = ?, description = ?, questions = ?, updated_at = NOW(), version = version + 1 
                 WHERE id = ?
             ");
             
-            $stmt->execute([
+            $result = $stmt->execute([
                 $name,
                 $description,
                 json_encode($questions),
                 $id
             ]);
 
-            if ($stmt->rowCount() === 0) {
-                http_response_code(404);
-                echo json_encode(['message' => 'Form not found']);
+            if (!$result) {
+                error_log("Failed to update form");
+                http_response_code(500);
+                echo json_encode(['message' => 'Failed to update form']);
                 return;
             }
 
-            // Get the updated form
+            // Obtener el formulario actualizado
             $stmt = $this->db->prepare("SELECT * FROM forms WHERE id = ?");
             $stmt->execute([$id]);
             $form = $stmt->fetch();
+
+            if (!$form) {
+                error_log("Form not found after update");
+                http_response_code(404);
+                echo json_encode(['message' => 'Form not found after update']);
+                return;
+            }
 
             $form['questions'] = json_decode($form['questions'], true);
             $form['created_at'] = strtotime($form['created_at']) * 1000;
             $form['updated_at'] = strtotime($form['updated_at']) * 1000;
 
+            error_log("Form updated successfully");
+            error_log("=== UPDATE FORM DEBUG END ===");
+
             echo json_encode($form);
 
         } catch (Exception $e) {
             error_log("Error updating form: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 
@@ -235,11 +282,15 @@ class FormsRoutes {
         $this->auth->requireRole($user, 'admin');
 
         try {
+            error_log("=== DELETE FORM DEBUG START ===");
+            error_log("Deleting form ID: " . $id);
+            
             // Check if form exists
             $stmt = $this->db->prepare("SELECT id FROM forms WHERE id = ?");
             $stmt->execute([$id]);
             
             if (!$stmt->fetch()) {
+                error_log("Form not found for deletion");
                 http_response_code(404);
                 echo json_encode(['message' => 'Form not found']);
                 return;
@@ -258,13 +309,17 @@ class FormsRoutes {
 
             $this->db->commit();
 
+            error_log("Form deleted successfully");
+            error_log("=== DELETE FORM DEBUG END ===");
+
             echo json_encode(['message' => 'Form deleted']);
 
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Error deleting form: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
     }
 }
