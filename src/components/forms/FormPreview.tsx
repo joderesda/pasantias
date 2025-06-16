@@ -67,19 +67,16 @@ const FormPreview: React.FC = () => {
     const visibleQuestions: Question[] = [];
     const processedQuestions = new Set<string>();
     
-    // Función recursiva para procesar preguntas y sus subpreguntas
     const processQuestion = (question: Question, depth: number = 0) => {
-      if (processedQuestions.has(question.id) || depth > 10) return; // Prevenir bucles infinitos
+      if (processedQuestions.has(question.id) || depth > 10) return;
       
       visibleQuestions.push(question);
       processedQuestions.add(question.id);
       
-      // Si es una pregunta de selección, verificar subpreguntas
       if (question.type === 'select' || question.type === 'multiselect') {
         const parentResponse = formResponses[question.id];
         
         if (parentResponse) {
-          // Encontrar todas las subpreguntas de esta pregunta
           const subQuestions = currentForm.questions.filter(q => q.parentId === question.id);
           
           subQuestions.forEach(subQuestion => {
@@ -93,7 +90,6 @@ const FormPreview: React.FC = () => {
             }
             
             if (shouldShow) {
-              // Procesar recursivamente la subpregunta
               processQuestion(subQuestion, depth + 1);
             }
           });
@@ -101,7 +97,6 @@ const FormPreview: React.FC = () => {
       }
     };
     
-    // Procesar todas las preguntas principales
     currentForm.questions
       .filter(q => !q.parentId)
       .forEach(q => processQuestion(q));
@@ -115,13 +110,11 @@ const FormPreview: React.FC = () => {
       
       const question = currentForm?.questions?.find(q => q.id === questionId);
       if (question && ['select', 'multiselect'].includes(question.type)) {
-        // Limpiar respuestas de subpreguntas cuando cambia la pregunta padre
         const clearSubQuestions = (parentId: string) => {
           const subQuestions = currentForm?.questions?.filter(q => q.parentId === parentId);
           subQuestions?.forEach(subQ => {
             if (newResponses[subQ.id]) {
               delete newResponses[subQ.id];
-              // Recursivamente limpiar subpreguntas de subpreguntas
               clearSubQuestions(subQ.id);
             }
           });
@@ -226,7 +219,7 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Función CORREGIDA para importar respuestas desde Excel - ESTRUCTURA EXACTA PARA PHP
+  // Función CORREGIDA para importar respuestas - ESTRUCTURA EXACTA PARA PHP
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentForm || !id) return;
@@ -246,7 +239,6 @@ const FormPreview: React.FC = () => {
 
       // 3. Preparar el payload EXACTO que espera el backend PHP
       // Según el código PHP, espera: { formId: string, responses: array }
-      // Donde cada item en responses debe tener: { form_version, responses, updated_offline, user_id }
       const payload = {
         formId: id, // ✅ ID del formulario actual
         responses: processedResponses.map(response => ({
@@ -255,8 +247,7 @@ const FormPreview: React.FC = () => {
             questionId: r.questionId, // ✅ Mantener questionId como espera el backend
             value: r.value
           })),
-          updated_offline: true,
-          user_id: null // Se asignará en el backend con el usuario autenticado
+          updated_offline: true
         }))
       };
 
@@ -283,7 +274,7 @@ const FormPreview: React.FC = () => {
     let level = 0;
     let currentQuestion = question;
     
-    while (currentQuestion.parentId && level < 10) { // Prevenir bucles infinitos
+    while (currentQuestion.parentId && level < 10) {
       const parentQuestion = currentForm?.questions.find(q => q.id === currentQuestion.parentId);
       if (!parentQuestion) break;
       level++;

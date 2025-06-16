@@ -307,7 +307,7 @@ class ResponsesRoutes {
 
                 // Extraer datos del item con valores por defecto
                 $formVersion = isset($item['form_version']) ? (int)$item['form_version'] : 1;
-                $userId = $item['user_id'] ?? $user['id'];
+                $userId = $user['id']; // ✅ USAR SIEMPRE EL USUARIO AUTENTICADO
                 $updatedOffline = isset($item['updated_offline']) ? (bool)$item['updated_offline'] : true;
                 $responses = $item['responses'] ?? [];
                 
@@ -385,7 +385,7 @@ class ResponsesRoutes {
                     $input['formId'],
                     $formVersion,
                     $jsonResponses,
-                    $userId,
+                    $userId, // ✅ USAR USUARIO AUTENTICADO
                     $updatedOffline ? 1 : 0
                 ]);
                 
