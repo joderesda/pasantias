@@ -175,7 +175,7 @@ class ResponsesRoutes {
             $checkStmt->execute([$responseId]);
             $existingResponse = $checkStmt->fetch();
 
-            if (!existingResponse) {
+            if (!$existingResponse) {
                 http_response_code(404);
                 echo json_encode(['message' => 'Response not found']);
                 return;
@@ -243,7 +243,7 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync) - CORREGIDO COMPLETAMENTE
+     * Import multiple responses (for offline sync) - VERSIÓN COMPLETAMENTE CORREGIDA
      */
     private function importResponses($user) {
         $rawInput = file_get_contents('php://input');
@@ -259,29 +259,32 @@ class ResponsesRoutes {
             return;
         }
 
-        error_log("Decoded input: " . json_encode($input, JSON_PRETTY_PRINT));
+        error_log("Decoded input structure: " . json_encode($input, JSON_PRETTY_PRINT));
 
         // Validar estructura principal
         if (!isset($input['formId']) || empty($input['formId'])) {
-            error_log("Missing or empty formId");
+            error_log("ERROR: Missing or empty formId");
             http_response_code(400);
             echo json_encode(['message' => 'formId is required']);
             return;
         }
 
         if (!isset($input['responses']) || !is_array($input['responses'])) {
-            error_log("Missing or invalid responses array");
+            error_log("ERROR: Missing or invalid responses array");
             http_response_code(400);
             echo json_encode(['message' => 'responses array is required']);
             return;
         }
 
         if (empty($input['responses'])) {
-            error_log("Empty responses array");
+            error_log("ERROR: Empty responses array");
             http_response_code(400);
             echo json_encode(['message' => 'responses array cannot be empty']);
             return;
         }
+
+        error_log("✅ Basic validation passed. FormId: " . $input['formId']);
+        error_log("✅ Responses array count: " . count($input['responses']));
 
         try {
             $this->db->beginTransaction();
@@ -291,36 +294,46 @@ class ResponsesRoutes {
             error_log("Processing " . count($input['responses']) . " response items");
             
             foreach ($input['responses'] as $index => $item) {
-                error_log("Processing response item $index: " . json_encode($item, JSON_PRETTY_PRINT));
+                error_log("\n--- Processing response item $index ---");
+                error_log("Item structure: " . json_encode($item, JSON_PRETTY_PRINT));
                 
                 // Validar estructura de cada item
                 if (!is_array($item)) {
-                    $errors[] = "Response item $index is not an array";
+                    $error = "Response item $index is not an array";
+                    $errors[] = $error;
+                    error_log("ERROR: $error");
                     continue;
                 }
 
-                // Extraer datos del item
-                $formVersion = $item['form_version'] ?? 1;
+                // Extraer datos del item con valores por defecto
+                $formVersion = isset($item['form_version']) ? (int)$item['form_version'] : 1;
                 $userId = $item['user_id'] ?? $user['id'];
-                $updatedOffline = $item['updated_offline'] ?? true;
+                $updatedOffline = isset($item['updated_offline']) ? (bool)$item['updated_offline'] : true;
                 $responses = $item['responses'] ?? [];
                 
-                error_log("Item $index - formVersion: $formVersion, userId: $userId, updatedOffline: " . ($updatedOffline ? 'true' : 'false'));
-                error_log("Item $index - responses: " . json_encode($responses, JSON_PRETTY_PRINT));
+                error_log("Item $index extracted data:");
+                error_log("  - formVersion: $formVersion");
+                error_log("  - userId: $userId");
+                error_log("  - updatedOffline: " . ($updatedOffline ? 'true' : 'false'));
+                error_log("  - responses count: " . count($responses));
                 
                 // Validar que hay respuestas
                 if (!is_array($responses) || empty($responses)) {
-                    $errors[] = "Response item $index has no valid responses";
+                    $error = "Response item $index has no valid responses array";
+                    $errors[] = $error;
+                    error_log("ERROR: $error");
                     continue;
                 }
 
                 // Procesar y validar cada respuesta individual
                 $processedResponses = [];
                 foreach ($responses as $responseIndex => $response) {
-                    error_log("Processing individual response $responseIndex: " . json_encode($response, JSON_PRETTY_PRINT));
+                    error_log("  Processing individual response $responseIndex: " . json_encode($response));
                     
                     if (!is_array($response)) {
-                        $errors[] = "Response $responseIndex in item $index is not an array";
+                        $error = "Response $responseIndex in item $index is not an array";
+                        $errors[] = $error;
+                        error_log("    ERROR: $error");
                         continue;
                     }
 
@@ -328,13 +341,16 @@ class ResponsesRoutes {
                     $value = $response['value'] ?? null;
                     
                     if (empty($questionId)) {
-                        $errors[] = "Response $responseIndex in item $index missing questionId";
+                        $error = "Response $responseIndex in item $index missing questionId";
+                        $errors[] = $error;
+                        error_log("    ERROR: $error");
                         continue;
                     }
 
-                    if ($value === null || $value === '') {
-                        error_log("Skipping empty response for question $questionId");
-                        continue; // Skip empty responses but don't error
+                    // Permitir valores falsy pero no null/undefined
+                    if ($value === null) {
+                        error_log("    SKIP: Empty value for question $questionId");
+                        continue;
                     }
 
                     $processedResponses[] = [
@@ -342,16 +358,18 @@ class ResponsesRoutes {
                         'value' => $value
                     ];
                     
-                    error_log("Added processed response: questionId=$questionId, value=" . json_encode($value));
+                    error_log("    ✅ Added: questionId=$questionId, value=" . json_encode($value));
                 }
 
-                // Solo proceder si hay respuestas válidas
+                // Solo proceder si hay respuestas válidas procesadas
                 if (empty($processedResponses)) {
-                    $errors[] = "Response item $index has no valid processed responses";
+                    $error = "Response item $index has no valid processed responses";
+                    $errors[] = $error;
+                    error_log("ERROR: $error");
                     continue;
                 }
 
-                error_log("Item $index final processed responses: " . json_encode($processedResponses, JSON_PRETTY_PRINT));
+                error_log("Item $index final processed responses count: " . count($processedResponses));
 
                 // Insertar en la base de datos
                 $stmt = $this->db->prepare("
@@ -360,26 +378,34 @@ class ResponsesRoutes {
                     VALUES (UUID(), ?, ?, ?, ?, NOW(), ?)
                 ");
                 
+                $jsonResponses = json_encode($processedResponses);
+                error_log("Inserting JSON: " . $jsonResponses);
+                
                 $executeResult = $stmt->execute([
                     $input['formId'],
                     $formVersion,
-                    json_encode($processedResponses), // ✅ Guardar con questionId
+                    $jsonResponses,
                     $userId,
                     $updatedOffline ? 1 : 0
                 ]);
                 
                 if ($executeResult) {
                     $imported++;
-                    error_log("Successfully imported response item $index");
+                    error_log("✅ Successfully imported response item $index");
                 } else {
-                    $errors[] = "Failed to insert response item $index";
-                    error_log("Failed to insert response item $index");
+                    $error = "Failed to insert response item $index: " . implode(', ', $stmt->errorInfo());
+                    $errors[] = $error;
+                    error_log("ERROR: $error");
                 }
             }
             
+            error_log("\n=== IMPORT SUMMARY ===");
+            error_log("Imported: $imported");
+            error_log("Errors: " . count($errors));
+            
             if ($imported > 0) {
                 $this->db->commit();
-                error_log("Transaction committed. Imported: $imported");
+                error_log("✅ Transaction committed successfully");
                 
                 $response = [
                     'message' => "Imported $imported responses successfully",
@@ -388,12 +414,13 @@ class ResponsesRoutes {
                 
                 if (!empty($errors)) {
                     $response['warnings'] = $errors;
+                    error_log("Warnings included in response");
                 }
                 
                 echo json_encode($response);
             } else {
                 $this->db->rollBack();
-                error_log("No responses imported. Errors: " . json_encode($errors));
+                error_log("❌ No responses imported. Rolling back transaction");
                 http_response_code(400);
                 echo json_encode([
                     'message' => 'No valid responses found in the batch',
@@ -403,7 +430,7 @@ class ResponsesRoutes {
             
         } catch (Exception $e) {
             $this->db->rollBack();
-            error_log("Import error: " . $e->getMessage());
+            error_log("❌ EXCEPTION during import: " . $e->getMessage());
             error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
             echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
