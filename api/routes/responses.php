@@ -70,23 +70,58 @@ class ResponsesRoutes {
     }
 
     /**
-     * Create new response
+     * Create new response - Versión corregida
      */
     private function createResponse($user) {
-        $input = json_decode(file_get_contents('php://input'), true);
+        $rawInput = file_get_contents('php://input');
+        $input = json_decode($rawInput, true);
         
-        $formId = $input['formId'] ?? '';
-        $formVersion = $input['formVersion'] ?? 1;
-        $responses = $input['responses'] ?? [];
-        $updatedOffline = $input['updatedOffline'] ?? false;
-
-        if (empty($formId) || empty($responses)) {
+        if (json_last_error() !== JSON_ERROR_NONE) {
             http_response_code(400);
-            echo json_encode(['message' => 'Form ID and responses are required']);
+            echo json_encode(['message' => 'Invalid JSON: '.json_last_error_msg()]);
+            return;
+        }
+
+        // Validación más robusta
+        $formId = $input['formId'] ?? $input['form_id'] ?? null;
+        $formVersion = $input['formVersion'] ?? $input['form_version'] ?? 1;
+        $responses = $input['responses'] ?? null;
+        $updatedOffline = $input['updatedOffline'] ?? $input['updated_offline'] ?? false;
+
+        if (empty($formId)) {
+            http_response_code(400);
+            echo json_encode(['message' => 'Form ID is required']);
+            return;
+        }
+
+        if (!is_array($responses)) {
+            http_response_code(400);
+            echo json_encode(['message' => 'Responses must be an array']);
             return;
         }
 
         try {
+            // Procesar respuestas para asegurar estructura correcta
+            $processedResponses = [];
+            foreach ($responses as $r) {
+                $questionId = $r['questionId'] ?? $r['question_id'] ?? null;
+                $value = $r['value'] ?? null;
+                
+                if ($questionId !== null && $value !== null) {
+                    $processedResponses[] = [
+                        'question_id' => $questionId,
+                        'value' => $value,
+                        'option_id' => $r['optionId'] ?? $r['option_id'] ?? null
+                    ];
+                }
+            }
+
+            if (empty($processedResponses)) {
+                http_response_code(400);
+                echo json_encode(['message' => 'No valid responses provided']);
+                return;
+            }
+
             $stmt = $this->db->prepare("
                 INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
                 VALUES (UUID(), ?, ?, ?, ?, NOW(), ?)
@@ -95,23 +130,25 @@ class ResponsesRoutes {
             $stmt->execute([
                 $formId,
                 $formVersion,
-                json_encode($responses),
+                json_encode($processedResponses),
                 $user['id'],
                 $updatedOffline ? 1 : 0
             ]);
 
-            // Get the created response ID
-            $stmt = $this->db->prepare("SELECT id FROM responses WHERE user_id = ? ORDER BY created_at DESC LIMIT 1");
-            $stmt->execute([$user['id']]);
-            $result = $stmt->fetch();
-            $responseId = $result['id'];
+            // Obtener el ID de la respuesta creada
+            $responseId = $this->db->lastInsertId();
 
-            echo json_encode(['id' => $responseId]);
+            echo json_encode([
+                'id' => $responseId,
+                'message' => 'Response created successfully',
+                'formId' => $formId,
+                'responsesCount' => count($processedResponses)
+            ]);
 
         } catch (Exception $e) {
             error_log("Error creating response: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error']);
+            echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
         }
     }
 
@@ -210,7 +247,7 @@ class ResponsesRoutes {
      */
     private function importResponses($user) {
         $rawInput = file_get_contents('php://input');
-        error_log("Raw input received: ".$rawInput);
+        error_log("Raw import input: " . $rawInput); // Debugging
         
         $input = json_decode($rawInput, true);
         
@@ -220,36 +257,38 @@ class ResponsesRoutes {
             return;
         }
 
+        // Validate required fields
+        if (empty($input['formId']) || empty($input['responses'])) {
+            http_response_code(400);
+            echo json_encode(['message' => 'formId and responses array are required']);
+            return;
+        }
+
         try {
             $this->db->beginTransaction();
             $imported = 0;
             
-            foreach ($input as $item) {
-                // Aceptar tanto camelCase como snake_case
-                $formId = $item['formId'] ?? $item['form_id'] ?? null;
-                $responses = $item['responses'] ?? null;
+            foreach ($input['responses'] as $item) {
+                // Process each response item
+                $formVersion = $item['form_version'] ?? 1;
+                $userId = $item['user_id'] ?? $user['id'];
+                $updatedOffline = $item['updated_offline'] ?? false;
+                $responses = $item['responses'] ?? [];
                 
-                if (!$formId || !is_array($responses)) {
+                // Skip if no responses (but don't fail the whole batch)
+                if (empty($responses)) {
                     continue;
                 }
-                
-                // Procesar cada respuesta
-                $processedResponses = [];
-                foreach ($responses as $r) {
-                    $questionId = $r['questionId'] ?? $r['question_id'] ?? null;
-                    $value = $r['value'] ?? null;
-                    
-                    if ($questionId && $value !== null) {
-                        $processedResponses[] = [
-                            'question_id' => $questionId,
-                            'value' => $value,
-                            'option_id' => $r['optionId'] ?? $r['option_id'] ?? null
-                        ];
-                    }
-                }
-                
-                if (empty($processedResponses)) continue;
-                
+
+                // Prepare the response data
+                $responseData = [
+                    'form_id' => $input['formId'],
+                    'form_version' => $formVersion,
+                    'responses' => $responses,
+                    'user_id' => $userId,
+                    'updated_offline' => $updatedOffline
+                ];
+
                 $stmt = $this->db->prepare("
                     INSERT INTO responses 
                     (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
@@ -257,11 +296,11 @@ class ResponsesRoutes {
                 ");
                 
                 $stmt->execute([
-                    $formId,
-                    $item['formVersion'] ?? $item['form_version'] ?? 1,
-                    json_encode($processedResponses),
-                    $user['id'],
-                    $item['updatedOffline'] ?? $item['updated_offline'] ?? false ? 1 : 0
+                    $responseData['form_id'],
+                    $responseData['form_version'],
+                    json_encode($responseData['responses']),
+                    $responseData['user_id'],
+                    $responseData['updated_offline'] ? 1 : 0
                 ]);
                 
                 $imported++;
@@ -270,17 +309,21 @@ class ResponsesRoutes {
             $this->db->commit();
             
             if ($imported > 0) {
-                echo json_encode(['message' => "Imported $imported responses successfully"]);
+                echo json_encode([
+                    'message' => "Imported $imported responses successfully",
+                    'importedCount' => $imported
+                ]);
             } else {
                 http_response_code(400);
-                echo json_encode(['message' => 'No valid responses found']);
+                echo json_encode(['message' => 'No valid responses found in the batch']);
             }
             
         } catch (Exception $e) {
             $this->db->rollBack();
+            error_log("Import error: " . $e->getMessage());
             http_response_code(500);
             echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
         }
     }
-    }
+}
 ?>

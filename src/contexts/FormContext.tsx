@@ -45,7 +45,7 @@ const transformFormFromBackend = (backendForm: any): Form => {
 const transformResponseFromBackend = (backendResponse: any): FormResponse => {
   return {
     id: backendResponse.id,
-    formId: backendResponse.form_id || backendResponse.formId,
+    formId: backendResponse.formId || backendResponse.formId,
     formVersion: parseInt(backendResponse.form_version || backendResponse.formVersion) || 1,
     responses: Array.isArray(backendResponse.responses) ? backendResponse.responses : [],
     createdAt: new Date(backendResponse.created_at || backendResponse.createdAt).getTime(),
@@ -481,42 +481,77 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   /**
    * Importa múltiples respuestas a la API - CORREGIDO PARA MÚLTIPLES RESPUESTAS
    */
-  const importResponses = useCallback(async (responsesData: FormResponse[]) => {
+  const importResponses = useCallback(async (importData: { formId: string, responses: any[] }) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const payload = responsesData.map(response => ({
-        form_id: response.formId, // Usar snake_case aquí
-        form_version: response.formVersion || 1,
-        responses: response.responses.map(r => ({
-          question_id: r.questionId, // snake_case
-          value: r.value,
-          ...(r.optionId && { option_id: r.optionId }) // snake_case
-        })),
-        created_at: response.createdAt,
-        updated_offline: response.updatedOffline || false,
-        user_id: response.userId || user?.id || 'offline-user'
-      }));
+      // 1. Validación mejorada con logs de depuración
+      console.log('🧠 Datos recibidos para importación:', importData);
+      
+      if (!importData?.formId) {
+        throw new Error('Form ID is required');
+      }
 
+      if (!Array.isArray(importData.responses)) {
+        throw new Error('Responses must be an array');
+      }
+
+      if (importData.responses.length === 0) {
+        throw new Error('Responses array cannot be empty');
+      }
+
+      // 2. Validación de estructura de cada respuesta
+      const invalidResponses = importData.responses.filter(response => 
+        !response.responses || 
+        !Array.isArray(response.responses) ||
+        response.responses.length === 0
+      );
+
+      if (invalidResponses.length > 0) {
+        console.error('❌ Respuestas inválidas:', invalidResponses);
+        throw new Error(`${invalidResponses.length} responses have invalid structure`);
+      }
+
+      // 3. Preparar payload para el backend
+      const payload = {
+        formId: importData.formId,
+        responses: importData.responses.map(response => ({
+          form_version: response.formVersion || 1,
+          responses: (response.responses || []).map((r: any) => ({
+            question_id: r.questionId,
+            value: r.value,
+            ...(r.optionId && { option_id: r.optionId })
+          })),
+          updated_offline: response.updatedOffline || false,
+          user_id: response.userId || user?.id || 'offline-user'
+        }))
+      };
+
+      console.log('📤 Payload para el backend:', payload);
+
+      // 4. Enviar al backend
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         credentials: 'include',
         body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message);
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Server error during import');
       }
 
-      // Recargar respuestas
-      const formIds = [...new Set(responsesData.map(r => r.formId))];
-      await Promise.all(formIds.map(loadResponses));
+      // 5. Actualizar estado local
+      await loadResponses(importData.formId);
 
       toast.success(t('responses_imported_successfully'));
       
     } catch (error: any) {
+      console.error('Error en importación:', error);
       toast.error(error.message || t('error_importing_responses'));
       throw error;
     } finally {
