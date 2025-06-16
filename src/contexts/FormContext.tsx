@@ -479,7 +479,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [t, loadForms]);
 
   /**
-   * Importa múltiples respuestas a la API - CORREGIDO COMPLETAMENTE
+   * Importa múltiples respuestas a la API - CORREGIDO PARA BACKEND PHP
    */
   const importResponses = useCallback(async (importData: { formId: string, responses: any[] }) => {
     try {
@@ -521,11 +521,11 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return false;
         }
 
-        // Validar que cada respuesta individual tenga la estructura correcta
+        // Validar que cada respuesta individual tenga la estructura correcta para PHP
         const hasValidResponses = response.responses.every((r: any) => 
           r && 
           typeof r === 'object' && 
-          r.question_id && 
+          r.questionId && // ✅ PHP espera questionId, no question_id
           r.value !== undefined
         );
 
@@ -543,13 +543,13 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log(`✅ ${validResponses.length} respuestas válidas de ${importData.responses.length} totales`);
 
-      // 3. Preparar payload final para el backend
+      // 3. Preparar payload EXACTO para el backend PHP
       const payload = {
         formId: importData.formId,
         responses: validResponses
       };
 
-      console.log('📤 Enviando payload al backend:', JSON.stringify(payload, null, 2));
+      console.log('📤 Enviando payload al backend PHP:', JSON.stringify(payload, null, 2));
 
       // 4. Enviar al backend
       const response = await fetch(`${API_BASE}/responses/import`, {

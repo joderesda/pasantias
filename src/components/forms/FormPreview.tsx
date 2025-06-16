@@ -226,7 +226,7 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Función CORREGIDA para importar respuestas desde Excel
+  // Función CORREGIDA para importar respuestas desde Excel - ESTRUCTURA EXACTA PARA PHP
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentForm || !id) return;
@@ -244,13 +244,13 @@ const FormPreview: React.FC = () => {
         throw new Error('No se encontraron respuestas válidas en el archivo');
       }
 
-      // 3. Preparar el payload CORRECTO para el backend
+      // 3. Preparar el payload EXACTO que espera el backend PHP
       const payload = {
         formId: id, // ✅ ID del formulario actual
         responses: processedResponses.map(response => ({
           form_version: response.formVersion || currentForm.version,
           responses: response.responses.map(r => ({
-            question_id: r.questionId,
+            questionId: r.questionId, // ✅ Mantener questionId como espera el backend
             value: r.value
           })),
           updated_offline: true,
@@ -258,7 +258,7 @@ const FormPreview: React.FC = () => {
         }))
       };
 
-      console.log('📤 Payload final para el backend:', JSON.stringify(payload, null, 2));
+      console.log('📤 Payload CORREGIDO para backend PHP:', JSON.stringify(payload, null, 2));
 
       // 4. Enviar al backend usando la función del contexto
       await importResponses(payload);
