@@ -226,45 +226,46 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Función corregida para importar respuestas desde Excel - SOLO PARA EL FORMULARIO ACTUAL
+  // Función CORREGIDA para importar respuestas desde Excel
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentForm || !id) return;
     
     try {
       setImporting(true);
-      console.log('🚀 Importando respuestas para formulario:', currentForm.id);
+      console.log('🚀 Importando respuestas para formulario:', id);
       
-      // 1. Leer el archivo Excel
-      const rawData = await readOfflineResponseFile(file, currentForm);
-      console.log('📦 Datos crudos del Excel:', rawData);
+      // 1. Leer el archivo Excel y procesar las respuestas
+      const processedResponses = await readOfflineResponseFile(file, currentForm);
+      console.log('📦 Respuestas procesadas del Excel:', processedResponses);
 
-      // 2. Validar que hay datos (CORRECCIÓN AQUÍ)
-      if (!Array.isArray(rawData)) {
-        throw new Error('El archivo no contiene datos válidos');
+      // 2. Validar que hay respuestas válidas
+      if (!Array.isArray(processedResponses) || processedResponses.length === 0) {
+        throw new Error('No se encontraron respuestas válidas en el archivo');
       }
 
-      // 3. Preparar payload para el backend
+      // 3. Preparar el payload CORRECTO para el backend
       const payload = {
-        formId: id, // ID del formulario actual
-        responses: rawData.map(response => ({
-          formVersion: currentForm.version,
-          responses: response.responses.map((r: any) => ({
-            questionId: r.questionId,
-            value: r.value,
-            ...(r.optionId && { optionId: r.optionId })
+        formId: id, // ✅ ID del formulario actual
+        responses: processedResponses.map(response => ({
+          form_version: response.formVersion || currentForm.version,
+          responses: response.responses.map(r => ({
+            question_id: r.questionId,
+            value: r.value
           })),
-          updatedOffline: true,
-          userId: 'offline-user'
+          updated_offline: true,
+          user_id: 'offline-user'
         }))
       };
 
-      console.log('📤 Enviando al backend:', payload);
+      console.log('📤 Payload final para el backend:', JSON.stringify(payload, null, 2));
+
+      // 4. Enviar al backend usando la función del contexto
       await importResponses(payload);
       
-      toast.success(`${rawData.length} respuesta(s) importada(s) correctamente`);
+      toast.success(`${processedResponses.length} respuesta(s) importada(s) correctamente`);
       
-      // 4. Recargar respuestas
+      // 5. Recargar respuestas para mostrar las nuevas
       await loadResponses(id);
       
     } catch (error) {

@@ -137,7 +137,7 @@ interface FormContextProps extends FormContextState {
   saveResponse: (response: Omit<FormResponse, 'id' | 'createdAt'>, responseId?: string) => Promise<string>;
   deleteResponse: (formId: string, responseId: string) => Promise<void>;
   importForms: (formsData: Form[]) => Promise<void>;
-  importResponses: (responsesData: FormResponse[]) => Promise<void>;
+  importResponses: (importData: { formId: string, responses: any[] }) => Promise<void>;
   exportForms: () => Promise<Form[]>;
   exportFormResponses: (formId: string) => Promise<FormResponse[]>;
 }
@@ -479,55 +479,77 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [t, loadForms]);
 
   /**
-   * Importa múltiples respuestas a la API - CORREGIDO PARA MÚLTIPLES RESPUESTAS
+   * Importa múltiples respuestas a la API - CORREGIDO COMPLETAMENTE
    */
   const importResponses = useCallback(async (importData: { formId: string, responses: any[] }) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      // 1. Validación mejorada con logs de depuración
-      console.log('🧠 Datos recibidos para importación:', importData);
+      console.log('🧠 Iniciando importación con datos:', importData);
       
-      if (!importData?.formId) {
-        throw new Error('Form ID is required');
+      // 1. Validación estricta de entrada
+      if (!importData || typeof importData !== 'object') {
+        throw new Error('Import data must be an object');
+      }
+
+      if (!importData.formId || typeof importData.formId !== 'string') {
+        throw new Error('formId is required and must be a string');
       }
 
       if (!Array.isArray(importData.responses)) {
-        throw new Error('Responses must be an array');
+        throw new Error('responses must be an array');
       }
 
       if (importData.responses.length === 0) {
-        throw new Error('Responses array cannot be empty');
+        throw new Error('responses array cannot be empty');
       }
 
       // 2. Validación de estructura de cada respuesta
-      const invalidResponses = importData.responses.filter(response => 
-        !response.responses || 
-        !Array.isArray(response.responses) ||
-        response.responses.length === 0
-      );
+      const validResponses = importData.responses.filter(response => {
+        if (!response || typeof response !== 'object') {
+          console.warn('⚠️ Respuesta inválida (no es objeto):', response);
+          return false;
+        }
 
-      if (invalidResponses.length > 0) {
-        console.error('❌ Respuestas inválidas:', invalidResponses);
-        throw new Error(`${invalidResponses.length} responses have invalid structure`);
+        if (!Array.isArray(response.responses)) {
+          console.warn('⚠️ Respuesta sin campo responses válido:', response);
+          return false;
+        }
+
+        if (response.responses.length === 0) {
+          console.warn('⚠️ Respuesta con array responses vacío:', response);
+          return false;
+        }
+
+        // Validar que cada respuesta individual tenga la estructura correcta
+        const hasValidResponses = response.responses.every((r: any) => 
+          r && 
+          typeof r === 'object' && 
+          r.question_id && 
+          r.value !== undefined
+        );
+
+        if (!hasValidResponses) {
+          console.warn('⚠️ Respuesta con estructura inválida en responses:', response);
+          return false;
+        }
+
+        return true;
+      });
+
+      if (validResponses.length === 0) {
+        throw new Error('No valid responses found after validation');
       }
 
-      // 3. Preparar payload para el backend
+      console.log(`✅ ${validResponses.length} respuestas válidas de ${importData.responses.length} totales`);
+
+      // 3. Preparar payload final para el backend
       const payload = {
         formId: importData.formId,
-        responses: importData.responses.map(response => ({
-          form_version: response.formVersion || 1,
-          responses: (response.responses || []).map((r: any) => ({
-            question_id: r.questionId,
-            value: r.value,
-            ...(r.optionId && { option_id: r.optionId })
-          })),
-          updated_offline: response.updatedOffline || false,
-          user_id: response.userId || user?.id || 'offline-user'
-        }))
+        responses: validResponses
       };
 
-      console.log('📤 Payload para el backend:', payload);
+      console.log('📤 Enviando payload al backend:', JSON.stringify(payload, null, 2));
 
       // 4. Enviar al backend
       const response = await fetch(`${API_BASE}/responses/import`, {
@@ -540,18 +562,33 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify(payload)
       });
 
+      console.log('📡 Respuesta del servidor:', response.status, response.statusText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Server error during import');
+        const errorText = await response.text();
+        console.error('❌ Error del servidor:', errorText);
+        
+        let errorMessage = 'Server error during import';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
+
+      const result = await response.json();
+      console.log('✅ Resultado del servidor:', result);
 
       // 5. Actualizar estado local
       await loadResponses(importData.formId);
 
-      toast.success(t('responses_imported_successfully'));
+      toast.success(`${validResponses.length} respuesta(s) importada(s) correctamente`);
       
     } catch (error: any) {
-      console.error('Error en importación:', error);
+      console.error('❌ Error en importación:', error);
       toast.error(error.message || t('error_importing_responses'));
       throw error;
     } finally {
