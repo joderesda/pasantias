@@ -226,38 +226,38 @@ const FormPreview: React.FC = () => {
     }
   };
 
-  // Función corregida para importar respuestas desde Excel
+  // Función corregida para importar respuestas desde Excel - SOLO PARA EL FORMULARIO ACTUAL
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !currentForm) return;
+    if (!file || !currentForm || !id) return;
     
     try {
       setImporting(true);
-      console.log('Importando respuestas para formulario:', currentForm.id);
+      console.log('🚀 Importando respuestas para formulario:', currentForm.id);
       
       // Usar el formulario actual directamente
       const data = await readOfflineResponseFile(file, currentForm);
-      console.log('Datos procesados para importar:', data);
+      console.log('📦 Datos procesados para importar:', data);
       
       if (Array.isArray(data) && data.length > 0) {
-        // Asegurar que todas las respuestas tengan el formId correcto
+        // Asegurar que todas las respuestas tengan el formId correcto (el formulario actual)
         const responsesWithCorrectFormId = data.map(response => ({
           ...response,
-          formId: currentForm.id,
+          formId: id, // Usar el ID del formulario actual
           formVersion: currentForm.version
         }));
         
-        console.log('Enviando al backend:', responsesWithCorrectFormId);
+        console.log('📤 Enviando al backend:', responsesWithCorrectFormId);
         await importResponses(responsesWithCorrectFormId);
-        toast.success(`${data.length} respuesta(s) importada(s) correctamente`);
+        toast.success(`${data.length} respuesta(s) importada(s) correctamente para ${currentForm.name}`);
         
-        // Recargar respuestas
-        await loadResponses(currentForm.id);
+        // Recargar respuestas del formulario actual
+        await loadResponses(id);
       } else {
         toast.error('El archivo no contiene respuestas válidas');
       }
     } catch (error) {
-      console.error('Error importing offline responses:', error);
+      console.error('❌ Error importing offline responses:', error);
       toast.error('Error al importar las respuestas offline: ' + (error instanceof Error ? error.message : 'Error desconocido'));
     } finally {
       setImporting(false);
