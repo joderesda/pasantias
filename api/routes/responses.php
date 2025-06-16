@@ -175,7 +175,7 @@ class ResponsesRoutes {
             $checkStmt->execute([$responseId]);
             $existingResponse = $checkStmt->fetch();
 
-            if (!$existingResponse) {
+            if (!existingResponse) {
                 http_response_code(404);
                 echo json_encode(['message' => 'Response not found']);
                 return;
@@ -243,87 +243,173 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync) - CORREGIDO PARA MÚLTIPLES RESPUESTAS
+     * Import multiple responses (for offline sync) - CORREGIDO COMPLETAMENTE
      */
     private function importResponses($user) {
         $rawInput = file_get_contents('php://input');
-        error_log("Raw import input: " . $rawInput); // Debugging
+        error_log("=== IMPORT RESPONSES DEBUG START ===");
+        error_log("Raw import input: " . $rawInput);
         
         $input = json_decode($rawInput, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("JSON decode error: " . json_last_error_msg());
             http_response_code(400);
             echo json_encode(['message' => 'Invalid JSON: '.json_last_error_msg()]);
             return;
         }
 
-        // Validate required fields
-        if (empty($input['formId']) || empty($input['responses'])) {
+        error_log("Decoded input: " . json_encode($input, JSON_PRETTY_PRINT));
+
+        // Validar estructura principal
+        if (!isset($input['formId']) || empty($input['formId'])) {
+            error_log("Missing or empty formId");
             http_response_code(400);
-            echo json_encode(['message' => 'formId and responses array are required']);
+            echo json_encode(['message' => 'formId is required']);
+            return;
+        }
+
+        if (!isset($input['responses']) || !is_array($input['responses'])) {
+            error_log("Missing or invalid responses array");
+            http_response_code(400);
+            echo json_encode(['message' => 'responses array is required']);
+            return;
+        }
+
+        if (empty($input['responses'])) {
+            error_log("Empty responses array");
+            http_response_code(400);
+            echo json_encode(['message' => 'responses array cannot be empty']);
             return;
         }
 
         try {
             $this->db->beginTransaction();
             $imported = 0;
+            $errors = [];
             
-            foreach ($input['responses'] as $item) {
-                // Process each response item
-                $formVersion = $item['form_version'] ?? 1;
-                $userId = $item['user_id'] ?? $user['id'];
-                $updatedOffline = $item['updated_offline'] ?? false;
-                $responses = $item['responses'] ?? [];
+            error_log("Processing " . count($input['responses']) . " response items");
+            
+            foreach ($input['responses'] as $index => $item) {
+                error_log("Processing response item $index: " . json_encode($item, JSON_PRETTY_PRINT));
                 
-                // Skip if no responses (but don't fail the whole batch)
-                if (empty($responses)) {
+                // Validar estructura de cada item
+                if (!is_array($item)) {
+                    $errors[] = "Response item $index is not an array";
                     continue;
                 }
 
-                // Prepare the response data
-                $responseData = [
-                    'form_id' => $input['formId'],
-                    'form_version' => $formVersion,
-                    'responses' => $responses,
-                    'user_id' => $userId,
-                    'updated_offline' => $updatedOffline
-                ];
+                // Extraer datos del item
+                $formVersion = $item['form_version'] ?? 1;
+                $userId = $item['user_id'] ?? $user['id'];
+                $updatedOffline = $item['updated_offline'] ?? true;
+                $responses = $item['responses'] ?? [];
+                
+                error_log("Item $index - formVersion: $formVersion, userId: $userId, updatedOffline: " . ($updatedOffline ? 'true' : 'false'));
+                error_log("Item $index - responses: " . json_encode($responses, JSON_PRETTY_PRINT));
+                
+                // Validar que hay respuestas
+                if (!is_array($responses) || empty($responses)) {
+                    $errors[] = "Response item $index has no valid responses";
+                    continue;
+                }
 
+                // Procesar y validar cada respuesta individual
+                $processedResponses = [];
+                foreach ($responses as $responseIndex => $response) {
+                    error_log("Processing individual response $responseIndex: " . json_encode($response, JSON_PRETTY_PRINT));
+                    
+                    if (!is_array($response)) {
+                        $errors[] = "Response $responseIndex in item $index is not an array";
+                        continue;
+                    }
+
+                    $questionId = $response['questionId'] ?? null;
+                    $value = $response['value'] ?? null;
+                    
+                    if (empty($questionId)) {
+                        $errors[] = "Response $responseIndex in item $index missing questionId";
+                        continue;
+                    }
+
+                    if ($value === null || $value === '') {
+                        error_log("Skipping empty response for question $questionId");
+                        continue; // Skip empty responses but don't error
+                    }
+
+                    $processedResponses[] = [
+                        'questionId' => $questionId, // ✅ Mantener questionId como espera el frontend
+                        'value' => $value
+                    ];
+                    
+                    error_log("Added processed response: questionId=$questionId, value=" . json_encode($value));
+                }
+
+                // Solo proceder si hay respuestas válidas
+                if (empty($processedResponses)) {
+                    $errors[] = "Response item $index has no valid processed responses";
+                    continue;
+                }
+
+                error_log("Item $index final processed responses: " . json_encode($processedResponses, JSON_PRETTY_PRINT));
+
+                // Insertar en la base de datos
                 $stmt = $this->db->prepare("
                     INSERT INTO responses 
                     (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
                     VALUES (UUID(), ?, ?, ?, ?, NOW(), ?)
                 ");
                 
-                $stmt->execute([
-                    $responseData['form_id'],
-                    $responseData['form_version'],
-                    json_encode($responseData['responses']),
-                    $responseData['user_id'],
-                    $responseData['updated_offline'] ? 1 : 0
+                $executeResult = $stmt->execute([
+                    $input['formId'],
+                    $formVersion,
+                    json_encode($processedResponses), // ✅ Guardar con questionId
+                    $userId,
+                    $updatedOffline ? 1 : 0
                 ]);
                 
-                $imported++;
+                if ($executeResult) {
+                    $imported++;
+                    error_log("Successfully imported response item $index");
+                } else {
+                    $errors[] = "Failed to insert response item $index";
+                    error_log("Failed to insert response item $index");
+                }
             }
             
-            $this->db->commit();
-            
             if ($imported > 0) {
-                echo json_encode([
+                $this->db->commit();
+                error_log("Transaction committed. Imported: $imported");
+                
+                $response = [
                     'message' => "Imported $imported responses successfully",
                     'importedCount' => $imported
-                ]);
+                ];
+                
+                if (!empty($errors)) {
+                    $response['warnings'] = $errors;
+                }
+                
+                echo json_encode($response);
             } else {
+                $this->db->rollBack();
+                error_log("No responses imported. Errors: " . json_encode($errors));
                 http_response_code(400);
-                echo json_encode(['message' => 'No valid responses found in the batch']);
+                echo json_encode([
+                    'message' => 'No valid responses found in the batch',
+                    'errors' => $errors
+                ]);
             }
             
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Import error: " . $e->getMessage());
+            error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
             echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
         }
+        
+        error_log("=== IMPORT RESPONSES DEBUG END ===");
     }
 }
 ?>
