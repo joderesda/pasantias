@@ -504,54 +504,10 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('responses array cannot be empty');
       }
 
-      // 2. Validación de estructura de cada respuesta
-      const validResponses = importData.responses.filter(response => {
-        if (!response || typeof response !== 'object') {
-          console.warn('⚠️ Respuesta inválida (no es objeto):', response);
-          return false;
-        }
+      console.log('✅ Validación inicial pasada');
+      console.log('📤 Enviando datos EXACTOS al backend PHP:', JSON.stringify(importData, null, 2));
 
-        if (!Array.isArray(response.responses)) {
-          console.warn('⚠️ Respuesta sin campo responses válido:', response);
-          return false;
-        }
-
-        if (response.responses.length === 0) {
-          console.warn('⚠️ Respuesta con array responses vacío:', response);
-          return false;
-        }
-
-        // Validar que cada respuesta individual tenga la estructura correcta para PHP
-        const hasValidResponses = response.responses.every((r: any) => 
-          r && 
-          typeof r === 'object' && 
-          r.questionId && // ✅ PHP espera questionId, no question_id
-          r.value !== undefined
-        );
-
-        if (!hasValidResponses) {
-          console.warn('⚠️ Respuesta con estructura inválida en responses:', response);
-          return false;
-        }
-
-        return true;
-      });
-
-      if (validResponses.length === 0) {
-        throw new Error('No valid responses found after validation');
-      }
-
-      console.log(`✅ ${validResponses.length} respuestas válidas de ${importData.responses.length} totales`);
-
-      // 3. Preparar payload EXACTO para el backend PHP
-      const payload = {
-        formId: importData.formId,
-        responses: validResponses
-      };
-
-      console.log('📤 Enviando payload al backend PHP:', JSON.stringify(payload, null, 2));
-
-      // 4. Enviar al backend
+      // 2. Enviar al backend exactamente como está
       const response = await fetch(`${API_BASE}/responses/import`, {
         method: 'POST',
         headers: { 
@@ -559,7 +515,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Accept': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(payload)
+        body: JSON.stringify(importData)
       });
 
       console.log('📡 Respuesta del servidor:', response.status, response.statusText);
@@ -582,10 +538,10 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await response.json();
       console.log('✅ Resultado del servidor:', result);
 
-      // 5. Actualizar estado local
+      // 3. Actualizar estado local
       await loadResponses(importData.formId);
 
-      toast.success(`${validResponses.length} respuesta(s) importada(s) correctamente`);
+      toast.success(`Respuestas importadas correctamente`);
       
     } catch (error: any) {
       console.error('❌ Error en importación:', error);

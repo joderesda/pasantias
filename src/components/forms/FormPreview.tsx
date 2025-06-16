@@ -245,6 +245,8 @@ const FormPreview: React.FC = () => {
       }
 
       // 3. Preparar el payload EXACTO que espera el backend PHP
+      // Según el código PHP, espera: { formId: string, responses: array }
+      // Donde cada item en responses debe tener: { form_version, responses, updated_offline, user_id }
       const payload = {
         formId: id, // ✅ ID del formulario actual
         responses: processedResponses.map(response => ({
@@ -254,11 +256,11 @@ const FormPreview: React.FC = () => {
             value: r.value
           })),
           updated_offline: true,
-          user_id: 'offline-user'
+          user_id: null // Se asignará en el backend con el usuario autenticado
         }))
       };
 
-      console.log('📤 Payload CORREGIDO para backend PHP:', JSON.stringify(payload, null, 2));
+      console.log('📤 Payload FINAL para backend PHP:', JSON.stringify(payload, null, 2));
 
       // 4. Enviar al backend usando la función del contexto
       await importResponses(payload);
