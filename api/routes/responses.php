@@ -1,4 +1,7 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../middleware/auth.php';
 
@@ -23,12 +26,12 @@ class ResponsesRoutes {
 
         if ($formId && $method === 'GET') {
             $this->getFormResponses($formId, $user);
+        } elseif ($path === '/responses/import' && $method === 'POST') {
+            $this->importResponses($user);
         } elseif ($method === 'POST' && $path === '/responses') {
             $this->createResponse($user);
         } elseif ($method === 'PUT' && $responseId) {
             $this->updateResponse($responseId, $user);
-        } elseif ($method === 'POST' && $path === '/responses/import') {
-            $this->importResponses($user);
         } elseif ($method === 'DELETE' && $responseId) {
             $this->deleteResponse($responseId, $user);
         } else {
@@ -70,85 +73,60 @@ class ResponsesRoutes {
     }
 
     /**
-     * Create new response - Versión corregida
+     * Create new response
      */
-    private function createResponse($user) {
-        $rawInput = file_get_contents('php://input');
-        $input = json_decode($rawInput, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            http_response_code(400);
-            echo json_encode(['message' => 'Invalid JSON: '.json_last_error_msg()]);
-            return;
+    private function saveSingleResponse($formId, $formVersion, $responses, $userId, $updatedOffline, $createdAt = null) {
+        if (empty($formId) || empty($responses)) {
+            error_log("Error saving single response: formId or responses are empty.");
+            return false;
         }
-
-        // Validación más robusta
-        $formId = $input['formId'] ?? $input['form_id'] ?? null;
-        $formVersion = $input['formVersion'] ?? $input['form_version'] ?? 1;
-        $responses = $input['responses'] ?? null;
-        $updatedOffline = $input['updatedOffline'] ?? $input['updated_offline'] ?? false;
-
-        if (empty($formId)) {
-            http_response_code(400);
-            echo json_encode(['message' => 'Form ID is required']);
-            return;
-        }
-
-        if (!is_array($responses)) {
-            http_response_code(400);
-            echo json_encode(['message' => 'Responses must be an array']);
-            return;
-        }
-
         try {
-            // Procesar respuestas para asegurar estructura correcta
-            $processedResponses = [];
-            foreach ($responses as $r) {
-                $questionId = $r['questionId'] ?? $r['question_id'] ?? null;
-                $value = $r['value'] ?? null;
-                
-                if ($questionId !== null && $value !== null) {
-                    $processedResponses[] = [
-                        'question_id' => $questionId,
-                        'value' => $value,
-                        'option_id' => $r['optionId'] ?? $r['option_id'] ?? null
-                    ];
-                }
+            // Ensure user_id exists in the users table to satisfy foreign key constraints
+            $stmt_check = $this->db->prepare("SELECT id FROM users WHERE id = ?");
+            $stmt_check->execute([$userId]);
+            if ($stmt_check->rowCount() === 0) {
+                error_log("Error saving single response: User with ID '$userId' not found.");
+                return false;
             }
 
-            if (empty($processedResponses)) {
-                http_response_code(400);
-                echo json_encode(['message' => 'No valid responses provided']);
-                return;
+            $sql = "INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) VALUES (UUID(), ?, ?, ?, ?, " . ($createdAt ? "FROM_UNIXTIME(?)" : "NOW()") . ", ?)";
+            $params = [$formId, $formVersion, json_encode($responses), $userId];
+            if ($createdAt) {
+                $params[] = $createdAt;
             }
+            $params[] = $updatedOffline ? 1 : 0;
+            $stmt = $this->db->prepare($sql);
+            return $stmt->execute($params); // Returns true on success, false on failure
+        } catch (PDOException $e) {
+            error_log("Error saving single response (SQL): " . $e->getMessage() . " with params: " . print_r($params, true));
+            return false;
+        }
+    }
 
-            $stmt = $this->db->prepare("
-                INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
-                VALUES (UUID(), ?, ?, ?, ?, NOW(), ?)
-            ");
-            
-            $stmt->execute([
-                $formId,
-                $formVersion,
-                json_encode($processedResponses),
-                $user['id'],
-                $updatedOffline ? 1 : 0
-            ]);
+    private function createResponse($user) {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $formId = $input['formId'] ?? '';
+        $formVersion = $input['formVersion'] ?? 1;
+        $responses = $input['responses'] ?? [];
+        $updatedOffline = $input['updatedOffline'] ?? false;
+        $createdAt = $input['createdAt'] ?? null;
 
-            // Obtener el ID de la respuesta creada
-            $responseId = $this->db->lastInsertId();
-
-            echo json_encode([
-                'id' => $responseId,
-                'message' => 'Response created successfully',
-                'formId' => $formId,
-                'responsesCount' => count($processedResponses)
-            ]);
-
+        if (!$this->saveSingleResponse($formId, $formVersion, $responses, $user['id'], $updatedOffline, $createdAt)) {
+            http_response_code(400);
+            echo json_encode(['message' => 'Form ID and responses are required']);
+            return;
+        }
+        // Get the created response ID
+        try {
+            $stmt = $this->db->prepare("SELECT id FROM responses WHERE user_id = ? ORDER BY created_at DESC LIMIT 1");
+            $stmt->execute([$user['id']]);
+            $result = $stmt->fetch();
+            $responseId = $result['id'];
+            echo json_encode(['id' => $responseId]);
         } catch (Exception $e) {
-            error_log("Error creating response: " . $e->getMessage());
+            error_log("Error fetching response ID: " . $e->getMessage());
             http_response_code(500);
-            echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
+            echo json_encode(['message' => 'Server error']);
         }
     }
 
@@ -243,200 +221,77 @@ class ResponsesRoutes {
     }
 
     /**
-     * Import multiple responses (for offline sync) - VERSIÓN COMPLETAMENTE CORREGIDA
+     * Import multiple responses (for offline sync) - CORREGIDO PARA MÚLTIPLES RESPUESTAS
      */
     private function importResponses($user) {
-        $rawInput = file_get_contents('php://input');
-        error_log("=== IMPORT RESPONSES DEBUG START ===");
-        error_log("Raw import input: " . $rawInput);
+        $log_file = sys_get_temp_dir() . '/debug_import.log';
+        file_put_contents($log_file, "--- Import request started at " . date('Y-m-d H:i:s') . " ---" . PHP_EOL, FILE_APPEND);
+
+        $raw_payload = file_get_contents('php://input');
+        file_put_contents($log_file, "Raw payload: " . $raw_payload . PHP_EOL, FILE_APPEND);
         
-        $input = json_decode($rawInput, true);
-        
+        $input = json_decode($raw_payload, true);
+
         if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log("JSON decode error: " . json_last_error_msg());
+            $error_message = 'Invalid JSON payload. Error: ' . json_last_error_msg();
             http_response_code(400);
-            echo json_encode(['message' => 'Invalid JSON: '.json_last_error_msg()]);
+            echo json_encode(['message' => $error_message]);
+            file_put_contents($log_file, "Error: " . $error_message . PHP_EOL, FILE_APPEND);
             return;
-        }
-
-        error_log("Decoded input structure: " . json_encode($input, JSON_PRETTY_PRINT));
-
-        // Validar estructura principal
-        if (!isset($input['formId']) || empty($input['formId'])) {
-            error_log("ERROR: Missing or empty formId");
-            http_response_code(400);
-            echo json_encode(['message' => 'formId is required']);
-            return;
-        }
-
-        if (!isset($input['responses']) || !is_array($input['responses'])) {
-            error_log("ERROR: Missing or invalid responses array");
-            http_response_code(400);
-            echo json_encode(['message' => 'responses array is required']);
-            return;
-        }
-
-        if (empty($input['responses'])) {
-            error_log("ERROR: Empty responses array");
-            http_response_code(400);
-            echo json_encode(['message' => 'responses array cannot be empty']);
-            return;
-        }
-
-        error_log("✅ Basic validation passed. FormId: " . $input['formId']);
-        error_log("✅ Responses array count: " . count($input['responses']));
-
-        try {
-            $this->db->beginTransaction();
-            $imported = 0;
-            $errors = [];
-            
-            error_log("Processing " . count($input['responses']) . " response items");
-            
-            foreach ($input['responses'] as $index => $item) {
-                error_log("\n--- Processing response item $index ---");
-                error_log("Item structure: " . json_encode($item, JSON_PRETTY_PRINT));
-                
-                // Validar estructura de cada item
-                if (!is_array($item)) {
-                    $error = "Response item $index is not an array";
-                    $errors[] = $error;
-                    error_log("ERROR: $error");
-                    continue;
-                }
-
-                // Extraer datos del item con valores por defecto
-                $formVersion = isset($item['form_version']) ? (int)$item['form_version'] : 1;
-                $userId = $user['id']; // ✅ USAR SIEMPRE EL USUARIO AUTENTICADO
-                $updatedOffline = isset($item['updated_offline']) ? (bool)$item['updated_offline'] : true;
-                $responses = $item['responses'] ?? [];
-                
-                error_log("Item $index extracted data:");
-                error_log("  - formVersion: $formVersion");
-                error_log("  - userId: $userId");
-                error_log("  - updatedOffline: " . ($updatedOffline ? 'true' : 'false'));
-                error_log("  - responses count: " . count($responses));
-                
-                // Validar que hay respuestas
-                if (!is_array($responses) || empty($responses)) {
-                    $error = "Response item $index has no valid responses array";
-                    $errors[] = $error;
-                    error_log("ERROR: $error");
-                    continue;
-                }
-
-                // Procesar y validar cada respuesta individual
-                $processedResponses = [];
-                foreach ($responses as $responseIndex => $response) {
-                    error_log("  Processing individual response $responseIndex: " . json_encode($response));
-                    
-                    if (!is_array($response)) {
-                        $error = "Response $responseIndex in item $index is not an array";
-                        $errors[] = $error;
-                        error_log("    ERROR: $error");
-                        continue;
-                    }
-
-                    $questionId = $response['questionId'] ?? null;
-                    $value = $response['value'] ?? null;
-                    
-                    if (empty($questionId)) {
-                        $error = "Response $responseIndex in item $index missing questionId";
-                        $errors[] = $error;
-                        error_log("    ERROR: $error");
-                        continue;
-                    }
-
-                    // Permitir valores falsy pero no null/undefined
-                    if ($value === null) {
-                        error_log("    SKIP: Empty value for question $questionId");
-                        continue;
-                    }
-
-                    $processedResponses[] = [
-                        'questionId' => $questionId, // ✅ Mantener questionId como espera el frontend
-                        'value' => $value
-                    ];
-                    
-                    error_log("    ✅ Added: questionId=$questionId, value=" . json_encode($value));
-                }
-
-                // Solo proceder si hay respuestas válidas procesadas
-                if (empty($processedResponses)) {
-                    $error = "Response item $index has no valid processed responses";
-                    $errors[] = $error;
-                    error_log("ERROR: $error");
-                    continue;
-                }
-
-                error_log("Item $index final processed responses count: " . count($processedResponses));
-
-                // Insertar en la base de datos
-                $stmt = $this->db->prepare("
-                    INSERT INTO responses 
-                    (id, form_id, form_version, responses, user_id, created_at, updated_offline) 
-                    VALUES (UUID(), ?, ?, ?, ?, NOW(), ?)
-                ");
-                
-                $jsonResponses = json_encode($processedResponses);
-                error_log("Inserting JSON: " . $jsonResponses);
-                
-                $executeResult = $stmt->execute([
-                    $input['formId'],
-                    $formVersion,
-                    $jsonResponses,
-                    $userId, // ✅ USAR USUARIO AUTENTICADO
-                    $updatedOffline ? 1 : 0
-                ]);
-                
-                if ($executeResult) {
-                    $imported++;
-                    error_log("✅ Successfully imported response item $index");
-                } else {
-                    $error = "Failed to insert response item $index: " . implode(', ', $stmt->errorInfo());
-                    $errors[] = $error;
-                    error_log("ERROR: $error");
-                }
-            }
-            
-            error_log("\n=== IMPORT SUMMARY ===");
-            error_log("Imported: $imported");
-            error_log("Errors: " . count($errors));
-            
-            if ($imported > 0) {
-                $this->db->commit();
-                error_log("✅ Transaction committed successfully");
-                
-                $response = [
-                    'message' => "Imported $imported responses successfully",
-                    'importedCount' => $imported
-                ];
-                
-                if (!empty($errors)) {
-                    $response['warnings'] = $errors;
-                    error_log("Warnings included in response");
-                }
-                
-                echo json_encode($response);
-            } else {
-                $this->db->rollBack();
-                error_log("❌ No responses imported. Rolling back transaction");
-                http_response_code(400);
-                echo json_encode([
-                    'message' => 'No valid responses found in the batch',
-                    'errors' => $errors
-                ]);
-            }
-            
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            error_log("❌ EXCEPTION during import: " . $e->getMessage());
-            error_log("Stack trace: " . $e->getTraceAsString());
-            http_response_code(500);
-            echo json_encode(['message' => 'Server error: '.$e->getMessage()]);
         }
         
-        error_log("=== IMPORT RESPONSES DEBUG END ===");
+        if (!isset($input['formId']) || !isset($input['responses']) || !is_array($input['responses'])) {
+            $error_message = 'Invalid payload structure. \"formId\" and \"responses\" array are required.';
+            http_response_code(400);
+            echo json_encode(['message' => $error_message]);
+            file_put_contents($log_file, "Error: " . $error_message . PHP_EOL, FILE_APPEND);
+            return;
+        }
+
+        $importedCount = 0;
+        $formId = $input['formId'];
+        $allResponsesFromExcel = $input['responses'];
+
+        file_put_contents($log_file, "Processing " . count($allResponsesFromExcel) . " responses for form ID: $formId" . PHP_EOL, FILE_APPEND);
+
+        foreach ($allResponsesFromExcel as $index => $singleResponseData) {
+            // Use snake_case keys sent from the frontend
+            $formVersion = $singleResponseData['form_version'] ?? 1;
+            $questionAnswers = $singleResponseData['responses'] ?? [];
+            $userId = !empty($singleResponseData['user_id']) ? $singleResponseData['user_id'] : $user['id'];
+            $updatedOffline = $singleResponseData['updated_offline'] ?? false;
+            // Frontend might send timestamp in milliseconds, convert to seconds for FROM_UNIXTIME
+            $createdAt = !empty($singleResponseData['created_at']) ? ($singleResponseData['created_at'] / 1000) : null;
+
+            $log_entry = "--- Processing response #" . ($index + 1) . " ---" . PHP_EOL;
+            $log_entry .= "Data: " . print_r($singleResponseData, true) . PHP_EOL;
+
+            if (empty($questionAnswers)) {
+                $log_entry .= "Result: SKIPPED (empty answers)" . PHP_EOL;
+                file_put_contents($log_file, $log_entry, FILE_APPEND);
+                continue;
+            }
+
+            $isSaved = $this->saveSingleResponse($formId, $formVersion, $questionAnswers, $userId, $updatedOffline, $createdAt);
+            
+            if ($isSaved) {
+                $log_entry .= "Result: SUCCESS" . PHP_EOL;
+                $importedCount++;
+            } else {
+                $log_entry .= "Result: FAILURE" . PHP_EOL;
+            }
+            file_put_contents($log_file, $log_entry, FILE_APPEND);
+        }
+
+        file_put_contents($log_file, "--- Import finished. Total saved: $importedCount ---" . PHP_EOL . PHP_EOL, FILE_APPEND);
+
+        if ($importedCount > 0) {
+            http_response_code(200);
+            echo json_encode(['message' => "Successfully imported $importedCount responses"]);
+        } else {
+            http_response_code(400);
+            echo json_encode(['message' => 'No valid responses could be saved. Check api/debug_import.log for details.']);
+        }
     }
 }
 ?>

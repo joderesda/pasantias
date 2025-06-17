@@ -30,6 +30,12 @@ class FormsRoutes {
                 }
                 break;
             case 'POST':
+                // POST should only be for creating new forms, not on a specific ID
+                if ($id) {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['message' => 'Cannot POST to a specific resource ID. Use PUT to update.']);
+                    return;
+                }
                 $this->createForm($user);
                 break;
             case 'PUT':

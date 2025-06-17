@@ -1,4 +1,15 @@
 <?php
+
+// Log de diagnóstico para cada petición
+$log_file_index = __DIR__ . '/debug_index.log';
+$request_info = sprintf(
+    "[%s] Method: %s, URI: %s, Payload: %s\n",
+    date('Y-m-d H:i:s'),
+    $_SERVER['REQUEST_METHOD'],
+    $_SERVER['REQUEST_URI'],
+    file_get_contents('php://input')
+);
+file_put_contents($log_file_index, $request_info, FILE_APPEND);
 require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/routes/auth.php';
 require_once __DIR__ . '/routes/forms.php';
@@ -55,10 +66,15 @@ try {
         $responsesRoutes = new ResponsesRoutes();
         $responsesRoutes->handleRequest($method, '/responses', null, $matches[1]);
         
-    } elseif ($uri === '/responses' || $uri === '/responses/import') {
+    } elseif ($uri === '/responses/import') {
+        // Import responses
+        $responsesRoutes = new ResponsesRoutes();
+        $responsesRoutes->handleRequest($method, '/responses/import');
+
+    } elseif ($uri === '/responses') {
         // Responses collection routes
         $responsesRoutes = new ResponsesRoutes();
-        $responsesRoutes->handleRequest($method, $uri);
+        $responsesRoutes->handleRequest($method, '/responses');
         
     } else {
         // Route not found

@@ -202,7 +202,7 @@ const FormBuilder: React.FC = () => {
     
     try {
       // Prepara los datos para enviar al backend
-      const formToSave = {
+      const formToSave: any = {
         name: formData.name.trim(),
         description: formData.description.trim(),
         questions: formData.questions
@@ -213,6 +213,11 @@ const FormBuilder: React.FC = () => {
             text: q.text.trim() // Limpia texto de preguntas
           }))
       };
+
+      // Si estamos editando, incluimos el ID del formulario
+      if (id) {
+        formToSave.id = id;
+      }
 
       // Depuración: muestra datos que se enviarán
       console.log('Preparando para guardar:', JSON.stringify(formToSave, null, 2));
