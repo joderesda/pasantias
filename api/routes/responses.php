@@ -21,7 +21,13 @@ class ResponsesRoutes {
     /**
      * Handle responses routes
      */
-    public function handleRequest($method, $path, $formId = null, $responseId = null) {
+        public function handleRequest($method, $path, $formId = null, $responseId = null) {
+        $handle_log = __DIR__ . '/debug_handle_request.log';
+        $log_info = sprintf(
+            "[%s] handleRequest called with: method=%s, path=%s, formId=%s, responseId=%s\n",
+            date('Y-m-d H:i:s'), $method, $path, $formId ?? 'null', $responseId ?? 'null'
+        );
+        file_put_contents($handle_log, $log_info, FILE_APPEND);
         $user = $this->auth->authenticate();
 
         if ($formId && $method === 'GET') {
@@ -224,7 +230,7 @@ class ResponsesRoutes {
      * Import multiple responses (for offline sync) - CORREGIDO PARA MÚLTIPLES RESPUESTAS
      */
     private function importResponses($user) {
-        $log_file = sys_get_temp_dir() . '/debug_import.log';
+        $log_file = __DIR__ . '/debug_import.log';
         file_put_contents($log_file, "--- Import request started at " . date('Y-m-d H:i:s') . " ---" . PHP_EOL, FILE_APPEND);
 
         $raw_payload = file_get_contents('php://input');

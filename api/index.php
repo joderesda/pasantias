@@ -61,15 +61,15 @@ try {
         $formsRoutes = new FormsRoutes();
         $formsRoutes->handleRequest($method, '/forms');
         
+        } elseif ($uri === '/responses/import') {
+        // Import responses
+        $responsesRoutes = new ResponsesRoutes();
+        $responsesRoutes->handleRequest($method, '/responses/import');
+
     } elseif (preg_match('#^/responses/([^/]+)$#', $uri, $matches)) {
         // Single response routes (for updates and deletes)
         $responsesRoutes = new ResponsesRoutes();
         $responsesRoutes->handleRequest($method, '/responses', null, $matches[1]);
-        
-    } elseif ($uri === '/responses/import') {
-        // Import responses
-        $responsesRoutes = new ResponsesRoutes();
-        $responsesRoutes->handleRequest($method, '/responses/import');
 
     } elseif ($uri === '/responses') {
         // Responses collection routes
