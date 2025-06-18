@@ -18,9 +18,10 @@ interface FilterState {
 }
 
 const FormResponses: React.FC = () => {
+  useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { t } = useTranslation();
+
   const { loadForm, loadResponses, currentForm, responses, isLoading, deleteResponse, saveResponse } = useForm();
   const [isExporting, setIsExporting] = useState(false);
   const [responseToDelete, setResponseToDelete] = useState<string | null>(null);
@@ -69,8 +70,9 @@ const FormResponses: React.FC = () => {
             if (question.type === 'select') {
               shouldShow = subQuestion.parentOptionId === parentResponse.value;
             } else if (question.type === 'multiselect') {
-              shouldShow = Array.isArray(parentResponse.value) && 
-                          parentResponse.value.includes(subQuestion.parentOptionId);
+              if (Array.isArray(parentResponse.value) && subQuestion.parentOptionId) {
+                shouldShow = parentResponse.value.includes(subQuestion.parentOptionId);
+              }
             }
             
             return shouldShow && response.responses.some(r => r.questionId === subQuestion.id);
@@ -220,13 +222,10 @@ const FormResponses: React.FC = () => {
         if (!questionResponse) return false;
         
         if (Array.isArray(filterValue)) {
-          // Para filtros múltiples
-          return filterValue.some(value => {
-            if (Array.isArray(questionResponse.value)) {
-              return questionResponse.value.includes(value);
-            }
-            return questionResponse.value === value;
-          });
+          // Filtro para multiselect
+          if (!Array.isArray(questionResponse.value)) return false;
+          // Devuelve true si alguna de las respuestas seleccionadas está en los valores del filtro
+          return filterValue.some(v => (questionResponse.value as string[]).includes(v));
         } else {
           // Para filtros simples
           if (Array.isArray(questionResponse.value)) {
@@ -293,9 +292,9 @@ const FormResponses: React.FC = () => {
     });
   };
   
-  const getFormattedResponseValue = (questionId: string, response: FormResponse) => {
+        const getFormattedResponseValue = (questionId: string, response: FormResponse) => {
     if (!currentForm) return '';
-    
+
     const questionResponse = response.responses.find(r => r.questionId === questionId);
     if (!questionResponse) return '';
     
@@ -313,8 +312,9 @@ const FormResponses: React.FC = () => {
         if (parentQuestion.type === 'select') {
           shouldShow = question.parentOptionId === parentResponse.value;
         } else if (parentQuestion.type === 'multiselect') {
-          shouldShow = Array.isArray(parentResponse.value) && 
-                      parentResponse.value.includes(question.parentOptionId);
+          if (Array.isArray(parentResponse.value) && question.parentOptionId) {
+          shouldShow = parentResponse.value.includes(question.parentOptionId);
+        }
         }
         
         if (!shouldShow) return '';
@@ -327,18 +327,20 @@ const FormResponses: React.FC = () => {
         return option ? option.text : '';
         
       case 'multiselect':
-        if (!Array.isArray(questionResponse.value)) return '';
-        return question.options
-          ?.filter(o => questionResponse.value.includes(o.id))
-          .map(o => o.text)
-          .join(', ') || '';
+        if (Array.isArray(questionResponse.value)) {
+          return question.options
+            ?.filter(o => (questionResponse.value as string[]).includes(o.id))
+            .map(o => o.text)
+            .join(', ') || '';
+        }
+        return '';
         
       case 'boolean':
         return questionResponse.value === true ? 'Sí' : questionResponse.value === false ? 'No' : '';
         
       case 'date':
         if (questionResponse.value) {
-          return new Date(questionResponse.value as string).toLocaleDateString();
+          return formatDateDisplay(String(questionResponse.value));
         }
         return '';
         
@@ -347,7 +349,7 @@ const FormResponses: React.FC = () => {
     }
   };
 
-  const renderEditableCell = (question: Question, responseId: string) => {
+  const renderEditableCell = (question: Question, _responseId: string) => {
     if (!currentForm) return null;
 
     const value = editedValues[question.id];

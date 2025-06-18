@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+
 import { Form, FormResponse, FormContextState } from '../types';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
@@ -30,11 +30,23 @@ const initialState: FormContextState = {
 
 // Función para convertir datos del backend al formato del frontend
 const transformFormFromBackend = (backendForm: any): Form => {
+  let questions = [];
+  if (typeof backendForm.questions === 'string') {
+    try {
+      questions = JSON.parse(backendForm.questions);
+    } catch (error) {
+      console.error('Error parsing questions JSON:', error);
+      questions = [];
+    }
+  } else if (Array.isArray(backendForm.questions)) {
+    questions = backendForm.questions;
+  }
+
   return {
     id: backendForm.id,
     name: backendForm.name,
     description: backendForm.description || '',
-    questions: Array.isArray(backendForm.questions) ? backendForm.questions : [],
+    questions: questions,
     createdAt: new Date(backendForm.createdAt || backendForm.created_at).getTime(),
     updatedAt: new Date(backendForm.updatedAt || backendForm.updated_at).getTime(),
     version: parseInt(backendForm.version) || 1
@@ -214,7 +226,6 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const backendForm = await response.json();
       const transformedForm = transformFormFromBackend(backendForm);
-      
       dispatch({ type: 'SET_CURRENT_FORM', payload: transformedForm });
     } catch (error: any) {
       console.error('Error loading form:', error);

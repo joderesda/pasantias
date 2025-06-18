@@ -58,6 +58,22 @@ class ResponsesRoutes {
         }
 
         try {
+            // 1. Get the current form definition to create a legacy ID map
+            $formStmt = $this->db->prepare("SELECT questions FROM forms WHERE id = ?");
+            $formStmt->execute([$formId]);
+            $form = $formStmt->fetch();
+
+            $idMap = [];
+            if ($form && !empty($form['questions'])) {
+                $questions = json_decode($form['questions'], true);
+                foreach ($questions as $question) {
+                    if (isset($question['id']) && isset($question['legacy_id'])) {
+                        $idMap[$question['legacy_id']] = $question['id'];
+                    }
+                }
+            }
+
+            // 2. Get all responses for the form
             $stmt = $this->db->prepare("
                 SELECT r.*, u.username 
                 FROM responses r 
@@ -68,13 +84,27 @@ class ResponsesRoutes {
             $stmt->execute([$formId]);
             $responses = $stmt->fetchAll();
 
-            // Parse JSON fields and convert timestamps
+            // 3. Parse and migrate responses on-the-fly
             foreach ($responses as &$response) {
-                $response['responses'] = json_decode($response['responses'], true);
-                // Convert MySQL timestamp to milliseconds
+                $decodedAnswers = json_decode($response['responses'], true);
+                
+                if (is_array($decodedAnswers)) {
+                    foreach ($decodedAnswers as &$answer) {
+                        if (isset($answer['questionId']) && isset($idMap[$answer['questionId']])) {
+                            $answer['questionId'] = $idMap[$answer['questionId']];
+                        }
+                    }
+                }
+
+                $response['responses'] = $decodedAnswers;
                 $response['created_at'] = strtotime($response['created_at']) * 1000;
                 $response['updated_offline'] = (bool) $response['updated_offline'];
             }
+
+            // Log the data being sent to the frontend
+            $log_file = __DIR__ . '/debug_get_responses.log';
+            $log_content = "[".date('Y-m-d H:i:s')."] Data for formId $formId:\n" . print_r($responses, true) . "\n---\n";
+            file_put_contents($log_file, $log_content, FILE_APPEND);
 
             echo json_encode($responses);
 

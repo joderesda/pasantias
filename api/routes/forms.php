@@ -98,7 +98,7 @@ class FormsRoutes {
     /**
      * Get single form - CORREGIDO: Todos los usuarios pueden ver cualquier formulario
      */
-    private function getForm($id, $user) {
+    private function getForm($id, $user, $rawOutput = false) {
         // Authorization check: only admin and analista can view form previews
         if ($user['role'] !== 'admin' && $user['role'] !== 'analista') {
             http_response_code(403);
@@ -129,8 +129,17 @@ class FormsRoutes {
                 return;
             }
 
-            // Parse JSON fields
-            $form['questions'] = json_decode($form['questions'], true);
+            // Parse and filter questions
+            $questions = json_decode($form['questions'], true) ?: [];
+            
+            if (!$rawOutput) {
+                $form['questions'] = array_filter($questions, function($q) {
+                    return !isset($q['deleted']) || !$q['deleted'];
+                });
+            } else {
+                $form['questions'] = $questions;
+            }
+
             $form['created_at'] = strtotime($form['created_at']) * 1000;
             $form['updated_at'] = strtotime($form['updated_at']) * 1000;
 
@@ -174,10 +183,12 @@ class FormsRoutes {
                 VALUES (UUID(), ?, ?, ?, ?, NOW(), NOW(), 1)
             ");
             
+            $processedQuestions = $this->processQuestionIds($questions);
+
             $stmt->execute([
                 $name,
                 $description,
-                json_encode($questions),
+                json_encode($processedQuestions),
                 $user['id']
             ]);
 
@@ -211,74 +222,95 @@ class FormsRoutes {
         $this->auth->requireRole($user, 'admin');
 
         $input = json_decode(file_get_contents('php://input'), true);
-        
         $name = $input['name'] ?? '';
         $description = $input['description'] ?? '';
-        $questions = $input['questions'] ?? [];
+        $newQuestions = $input['questions'] ?? [];
 
-        if (empty($name) || empty($questions)) {
+        if (empty($name)) {
             http_response_code(400);
-            echo json_encode(['message' => 'Name and questions are required']);
+            echo json_encode(['message' => 'Form name is required']);
             return;
         }
 
         try {
-            error_log("=== UPDATE FORM DEBUG START ===");
-            error_log("Updating form ID: " . $id);
-            error_log("Update data: " . json_encode($input));
-            
-            // Verificar que el formulario existe
-            $checkStmt = $this->db->prepare("SELECT id FROM forms WHERE id = ?");
-            $checkStmt->execute([$id]);
-            
-            if (!$checkStmt->fetch()) {
-                error_log("Form not found for update");
+            // 1. Fetch the existing form to get the old questions
+            $stmt = $this->db->prepare("SELECT * FROM forms WHERE id = ?");
+            $stmt->execute([$id]);
+            $existingForm = $stmt->fetch();
+
+            if (!$existingForm) {
                 http_response_code(404);
                 echo json_encode(['message' => 'Form not found']);
                 return;
             }
 
-            // Actualizar el formulario existente
-            $stmt = $this->db->prepare("
+            $existingQuestions = json_decode($existingForm['questions'], true) ?: [];
+            $existingQuestionsMap = [];
+            foreach ($existingQuestions as $q) {
+                $existingQuestionsMap[$q['id']] = $q;
+            }
+
+            $finalQuestions = [];
+            $processedIds = [];
+
+            // 2. Process the new questions from the frontend
+            // This loop preserves the new order and updates existing questions.
+            foreach ($newQuestions as $nq) {
+                $q_id = $nq['id'];
+                // It's a new question with a temporary ID
+                if (strpos($q_id, 'q') === 0) {
+                    $newId = $this->generateUUIDv4();
+                    $nq['legacy_id'] = $q_id;
+                    $nq['id'] = $newId;
+                    $finalQuestions[] = $nq;
+                    $processedIds[$newId] = true;
+                } else {
+                    // It's an existing question
+                    $finalQuestions[] = $nq;
+                    $processedIds[$q_id] = true;
+                }
+            }
+
+            // 3. Find and mark deleted questions
+            // Append questions that were in the old form but not in the new submission.
+            foreach ($existingQuestionsMap as $q_id => $eq) {
+                if (!isset($processedIds[$q_id])) {
+                    $eq['deleted'] = true;
+                    $finalQuestions[] = $eq;
+                }
+            }
+
+            // 4. Update the form in the database
+            $updateStmt = $this->db->prepare("
                 UPDATE forms 
                 SET name = ?, description = ?, questions = ?, updated_at = NOW(), version = version + 1 
                 WHERE id = ?
             ");
             
-            $result = $stmt->execute([
+            $updateStmt->execute([
                 $name,
                 $description,
-                json_encode($questions),
+                json_encode($finalQuestions),
                 $id
             ]);
 
-            if (!$result) {
-                error_log("Failed to update form");
-                http_response_code(500);
-                echo json_encode(['message' => 'Failed to update form']);
-                return;
-            }
-
-            // Obtener el formulario actualizado
+            // 5. Return the updated form (with deleted questions filtered out for the UI)
             $stmt = $this->db->prepare("SELECT * FROM forms WHERE id = ?");
             $stmt->execute([$id]);
-            $form = $stmt->fetch();
+            $updatedForm = $stmt->fetch();
 
-            if (!$form) {
-                error_log("Form not found after update");
-                http_response_code(404);
-                echo json_encode(['message' => 'Form not found after update']);
-                return;
-            }
+            // We manually process the form here to control the output
+            $allQuestions = json_decode($updatedForm['questions'], true) ?: [];
+            
+            // Filter out deleted questions for the response to the frontend
+            $updatedForm['questions'] = array_values(array_filter($allQuestions, function($q) {
+                return !isset($q['deleted']) || !$q['deleted'];
+            }));
 
-            $form['questions'] = json_decode($form['questions'], true);
-            $form['created_at'] = strtotime($form['created_at']) * 1000;
-            $form['updated_at'] = strtotime($form['updated_at']) * 1000;
+            $updatedForm['created_at'] = strtotime($updatedForm['created_at']) * 1000;
+            $updatedForm['updated_at'] = strtotime($updatedForm['updated_at']) * 1000;
 
-            error_log("Form updated successfully");
-            error_log("=== UPDATE FORM DEBUG END ===");
-
-            echo json_encode($form);
+            echo json_encode($updatedForm);
 
         } catch (Exception $e) {
             error_log("Error updating form: " . $e->getMessage());
@@ -334,6 +366,58 @@ class FormsRoutes {
             http_response_code(500);
             echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Generate a UUID v4
+     */
+    private function generateUUIDv4() {
+        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+    }
+
+    /**
+     * Process questions to assign persistent UUIDs
+     */
+    private function processQuestionIds($questions) {
+        $idMap = [];
+
+        // First pass: assign new UUIDs to questions and options
+        foreach ($questions as &$question) {
+            // Assign UUID to the question if it's a temporary ID (e.g., 'q001')
+            if (isset($question['id']) && is_string($question['id']) && strpos($question['id'], 'q') === 0) {
+                $oldId = $question['id'];
+                $newId = $this->generateUUIDv4();
+                $question['legacy_id'] = $oldId; // Preserve original ID
+                $question['id'] = $newId;
+                $idMap[$oldId] = $newId;
+            }
+
+            // Assign UUIDs to options if they don't have one
+            if (isset($question['options']) && is_array($question['options'])) {
+                foreach ($question['options'] as &$option) {
+                    if (!isset($option['id']) || strpos($option['id'], 'temp_') === 0) {
+                         $option['id'] = $this->generateUUIDv4();
+                    }
+                }
+            }
+        }
+        unset($question, $option); // break references
+
+        // Second pass: update parentId references
+        foreach ($questions as &$question) {
+            if (isset($question['parentId']) && isset($idMap[$question['parentId']])) {
+                $question['parentId'] = $idMap[$question['parentId']];
+            }
+        }
+        unset($question); // break reference
+
+        return $questions;
     }
 }
 ?>

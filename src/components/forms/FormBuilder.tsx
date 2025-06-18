@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useForm } from '../../contexts/FormContext';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
-import { Question, QuestionType, Form } from '../../types';
+import { Question, QuestionType } from '../../types';
 import QuestionEditor from './QuestionEditor';
 import Spinner from '../ui/Spinner';
 import toast from 'react-hot-toast';
@@ -17,7 +17,7 @@ const FormBuilder: React.FC = () => {
   const { loadForm, saveForm, currentForm, isLoading } = useForm();
   const { t } = useTranslation();
   
-  const initialFormState = {
+  const initialFormState: { name: string; description: string; questions: Question[] } = {
     name: '',
     description: '',
     questions: []
@@ -124,62 +124,47 @@ const FormBuilder: React.FC = () => {
     });
   };
 
-  // ======================
-  // REORGANIZACIÓN DE PREGUNTAS
-  // ======================
+  const handleMoveQuestionUp = (index: number) => {
+    const mainQuestions = formData.questions.filter(q => !q.parentId);
+    if (index === 0) return;
 
-  /**
-   * Reorganiza preguntas con IDs secuenciales manteniendo jerarquías
-   * @param questions - Array de preguntas a reorganizar
-   * @returns Array de preguntas reorganizadas
-   */
-  const reorganizeQuestions = (questions: Question[]): Question[] => {
-    const mainQuestions = questions.filter(q => !q.parentId);
-    const subQuestions = questions.filter(q => q.parentId);
-    
-    const questionsByParent = new Map<string, Question[]>();
-    subQuestions.forEach(q => {
-      if (!questionsByParent.has(q.parentId!)) {
-        questionsByParent.set(q.parentId!, []);
-      }
-      questionsByParent.get(q.parentId!)!.push(q);
-    });
-    
-    const processQuestionHierarchy = (question: Question): Question[] => {
-      const result: Question[] = [question];
-      
-      if (question.options) {
-        question.options.forEach(option => {
-          const optionSubQuestions = questionsByParent.get(question.id)?.filter(
-            q => q.parentOptionId === option.id
-          ) || [];
-          
-          optionSubQuestions.forEach(subQ => {
-            result.push(...processQuestionHierarchy(subQ));
-          });
-        });
-      }
-      
-      return result;
-    };
-    
-    const organizedQuestions = mainQuestions.flatMap(q => processQuestionHierarchy(q));
-    
-    const idMap = new Map<string, string>();
-    
-    return organizedQuestions.map((q, index) => {
-      const oldId = q.id;
-      const newId = `q${(index + 1).toString().padStart(3, '0')}`;
-      idMap.set(oldId, newId);
-      
-      return {
-        ...q,
-        id: newId,
-        parentId: q.parentId ? idMap.get(q.parentId) : undefined,
-        parentOptionId: q.parentOptionId
-      };
-    });
+    const newQuestions = [...formData.questions];
+    const questionId = mainQuestions[index].id;
+    const swapWithId = mainQuestions[index - 1].id;
+
+    const fromIndex = newQuestions.findIndex(q => q.id === questionId);
+    const toIndex = newQuestions.findIndex(q => q.id === swapWithId);
+
+    // Swap the elements
+    [newQuestions[fromIndex], newQuestions[toIndex]] = [newQuestions[toIndex], newQuestions[fromIndex]];
+
+    setFormData(prev => ({
+      ...prev,
+      questions: newQuestions,
+    }));
   };
+
+  const handleMoveQuestionDown = (index: number) => {
+    const mainQuestions = formData.questions.filter(q => !q.parentId);
+    if (index >= mainQuestions.length - 1) return;
+
+    const newQuestions = [...formData.questions];
+    const questionId = mainQuestions[index].id;
+    const swapWithId = mainQuestions[index + 1].id;
+
+    const fromIndex = newQuestions.findIndex(q => q.id === questionId);
+    const toIndex = newQuestions.findIndex(q => q.id === swapWithId);
+
+    // Swap the elements
+    [newQuestions[fromIndex], newQuestions[toIndex]] = [newQuestions[toIndex], newQuestions[fromIndex]];
+
+    setFormData(prev => ({
+      ...prev,
+      questions: newQuestions,
+    }));
+  };
+
+
 
   // ======================
   // GUARDADO DEL FORMULARIO (CORRECCIÓN PRINCIPAL)
@@ -218,9 +203,6 @@ const FormBuilder: React.FC = () => {
       if (id) {
         formToSave.id = id;
       }
-
-      // Depuración: muestra datos que se enviarán
-      console.log('Preparando para guardar:', JSON.stringify(formToSave, null, 2));
 
       // Intenta guardar el formulario
       const savedId = await saveForm(formToSave);
