@@ -99,6 +99,13 @@ class FormsRoutes {
      * Get single form - CORREGIDO: Todos los usuarios pueden ver cualquier formulario
      */
     private function getForm($id, $user) {
+        // Authorization check: only admin and analista can view form previews
+        if ($user['role'] !== 'admin' && $user['role'] !== 'analista') {
+            http_response_code(403);
+            echo json_encode(['message' => 'Forbidden: You do not have permission to view this form.']);
+            return;
+        }
+
         try {
             error_log("=== GET SINGLE FORM DEBUG START ===");
             error_log("Form ID: " . $id);

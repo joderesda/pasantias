@@ -2,7 +2,7 @@
 export type QuestionType = 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'boolean';
 
 // Roles de usuario
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'user' | 'analista';
 
 // Usuario
 export interface User {

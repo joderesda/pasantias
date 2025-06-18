@@ -14,6 +14,7 @@ require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/routes/auth.php';
 require_once __DIR__ . '/routes/forms.php';
 require_once __DIR__ . '/routes/responses.php';
+require_once __DIR__ . '/routes/users.php';
 
 // Start session
 session_start();
@@ -61,7 +62,7 @@ try {
         $formsRoutes = new FormsRoutes();
         $formsRoutes->handleRequest($method, '/forms');
         
-        } elseif ($uri === '/responses/import') {
+    } elseif ($uri === '/responses/import') {
         // Import responses
         $responsesRoutes = new ResponsesRoutes();
         $responsesRoutes->handleRequest($method, '/responses/import');
@@ -76,6 +77,11 @@ try {
         $responsesRoutes = new ResponsesRoutes();
         $responsesRoutes->handleRequest($method, '/responses');
         
+    } elseif (preg_match('#^/users(?:/([^/]+))?$#', $uri, $matches)) {
+        $userId = $matches[1] ?? null;
+        $usersRoutes = new UsersRoutes();
+        $usersRoutes->handleRequest($method, '/users', $userId);
+
     } else {
         // Route not found
         http_response_code(404);

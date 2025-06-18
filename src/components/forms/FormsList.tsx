@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Edit, Eye, Trash2, BarChart, Download } from 'lucide-react'; // Íconos
+import { Edit, Eye, Trash2, BarChart, FileText } from 'lucide-react'; // Íconos
 import { useForm } from '../../contexts/FormContext'; // Contexto de formularios
 import { useAuth } from '../../contexts/AuthContext'; // Contexto de autenticación
 import { useTranslation } from 'react-i18next'; // Internacionalización
-import { exportToExcel } from '../../utils/excelUtils'; // Utilidad para exportar
+
 import ConfirmDialog from '../ui/ConfirmDialog'; // Diálogo de confirmación
 import Spinner from '../ui/Spinner'; // Componente de carga
 
@@ -35,21 +35,15 @@ const FormsList: React.FC = () => {
 
   // Carga los formularios al montar el componente
   useEffect(() => {
-    console.log('FormsList mounted, loading forms...');
     loadForms();
-  }, []); // Solo se ejecuta una vez al montar
-
-  // Debug: Log cuando cambian los formularios
-  useEffect(() => {
-    console.log('Forms updated in FormsList:', forms);
-  }, [forms]);
+  }, [loadForms]); // Solo se ejecuta una vez al montar
 
   // Función memoizada para cargar respuestas
   const loadResponsesForForm = useCallback(async (formId: string) => {
     if (!responsesLoaded.has(formId)) {
       try {
         await loadResponses(formId);
-        setResponsesLoaded(prev => new Set([...prev, formId]));
+        setResponsesLoaded(prev => new Set(prev).add(formId));
       } catch (error) {
         console.error(`Error loading responses for form ${formId}:`, error);
       }
@@ -58,30 +52,16 @@ const FormsList: React.FC = () => {
 
   // Carga las respuestas para cada formulario (solo una vez por formulario)
   useEffect(() => {
-    if (forms.length > 0) {
-      forms.forEach(form => {
-        if (!responsesLoaded.has(form.id)) {
-          loadResponsesForForm(form.id);
-        }
-      });
-    }
+    forms.forEach(form => {
+      if (!responsesLoaded.has(form.id)) {
+        loadResponsesForForm(form.id);
+      }
+    });
   }, [forms, loadResponsesForForm]);
 
   // ======================
   // FUNCIONES UTILITARIAS
   // ======================
-
-  /**
-   * Exporta un formulario a Excel
-   * @param id - ID del formulario
-   * @param name - Nombre del formulario (para el nombre del archivo)
-   */
-  const handleExportForm = async (id: string, name: string) => {
-    const form = forms.find(f => f.id === id);
-    if (form) {
-      await exportToExcel([form], `formulario_${name.replace(/\s+/g, '_').toLowerCase()}.xlsx`);
-    }
-  };
 
   /**
    * Obtiene el número de respuestas para un formulario
@@ -103,159 +83,112 @@ const FormsList: React.FC = () => {
   );
 
   // Ordena formularios por fecha de actualización (más reciente primero)
-  const sortedForms = [...filteredForms].sort((a, b) => b.updatedAt - a.updatedAt);
+  const sortedForms = [...filteredForms].sort((a, b) => 
+    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
 
   // ======================
   // RENDERIZADO
   // ======================
 
   return (
-    <div className="container mx-auto">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        {/* Encabezado y búsqueda */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4 md:mb-0">{t('forms')}</h1>
-          
-          <div className="w-full md:w-auto">
-            <input
-              type="text"
-              placeholder={t('search_forms')}
-              className="w-full md:w-64 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+    <div className="container mx-auto p-4 md:p-6">
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        {/* Header and Search */}
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+            <h1 className="text-3xl font-bold text-odec-blue font-display mb-4 md:mb-0">
+              {t('forms_list')}
+            </h1>
+            <div className="w-full md:w-auto">
+              <input
+                type="text"
+                placeholder={t('search_forms')}
+                className="w-full md:w-72 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-odec-blue/50 focus:border-odec-blue transition-shadow"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Debug info - Solo en desarrollo */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mb-4 p-2 bg-gray-100 rounded text-sm">
-            <p>Debug: Forms count: {forms.length}</p>
-            <p>Debug: Is loading: {isLoading.toString()}</p>
-            <p>Debug: User role: {user?.role}</p>
-            <p>Debug: Responses loaded for: {Array.from(responsesLoaded).join(', ')}</p>
+        {/* Loading State */}
+        {isLoading && (
+          <div className="p-12 flex justify-center items-center">
+            <Spinner />
           </div>
         )}
 
-        {/* Contenido principal */}
-        {isLoading ? (
-          <div className="flex justify-center my-12">
-            <Spinner />
-          </div>
-        ) : sortedForms.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <p className="text-gray-500 mb-4">
-              {searchTerm ? t('no_matching_forms') : t('no_forms_created')}
-            </p>
+        {/* Empty State */}
+        {!isLoading && sortedForms.length === 0 && (
+          <div className="text-center py-16 px-6">
+            <FileText size={48} className="mx-auto text-gray-300" />
+            <h2 className="mt-4 text-xl font-semibold text-gray-700">{t('no_forms_found')}</h2>
+            <p className="mt-2 text-gray-500">{t('no_forms_yet_message')}</p>
             {user?.role === 'admin' && (
-              <Link 
-                to="/crear" 
-                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              <Link
+                to="/crear"
+                className="mt-6 inline-block bg-odec-blue text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
               >
-                <span className="mr-2">+</span> {t('create_form')}
+                {t('create_first_form')}
               </Link>
             )}
           </div>
-        ) : (
+        )}
+
+        {/* Forms Table */}
+        {!isLoading && sortedForms.length > 0 && (
           <div className="overflow-x-auto">
             <table className="min-w-full bg-white">
-              <thead>
-                <tr className="bg-gray-100 text-gray-600 uppercase text-sm leading-normal">
-                  <th className="py-3 px-6 text-left">{t('name')}</th>
-                  <th className="py-3 px-6 text-left hidden md:table-cell">{t('description')}</th>
-                  <th className="py-3 px-6 text-center hidden md:table-cell">{t('questions')}</th>
-                  <th className="py-3 px-6 text-center hidden md:table-cell">{t('responses')}</th>
-                  <th className="py-3 px-6 text-center hidden md:table-cell">{t('version')}</th>
-                  <th className="py-3 px-6 text-center">{t('actions')}</th>
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="py-3 px-6 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nombre</th>
+                  <th className="py-3 px-6 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">{t('last_updated')}</th>
+                  <th className="py-3 px-6 text-center text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Respuestas</th>
+                  <th className="py-3 px-6 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">{t('actions')}</th>
                 </tr>
               </thead>
-              <tbody className="text-gray-600 text-sm">
+              <tbody className="divide-y divide-gray-200">
                 {sortedForms.map((form) => (
-                  <tr key={form.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    {/* Nombre */}
-                    <td className="py-3 px-6 text-left">
-                      <div className="font-medium">{form.name}</div>
-                      <div className="text-xs text-gray-500 md:hidden">
+                  <tr key={form.id} className="hover:bg-gray-50 transition-colors">
+                    {/* Form Name and Description */}
+                    <td className="py-4 px-6">
+                      <div className="font-medium text-gray-900">{form.name}</div>
+                      <div className="text-sm text-gray-500 line-clamp-1 hidden md:block">{form.description}</div>
+                    </td>
+                    {/* Last Updated */}
+                    <td className="py-4 px-6 whitespace-nowrap hidden md:table-cell">
+                      <div className="text-sm text-gray-600">
                         {new Date(form.updatedAt).toLocaleDateString()}
                       </div>
                     </td>
-                    
-                    {/* Descripción (solo en desktop) */}
-                    <td className="py-3 px-6 text-left hidden md:table-cell">
-                      <div className="line-clamp-2">{form.description}</div>
-                    </td>
-                    
-                    {/* Número de preguntas (solo en desktop) */}
-                    <td className="py-3 px-6 text-center hidden md:table-cell">
-                      {form.questions?.length ?? 0}
-                    </td>
-                    
-                    {/* Número de respuestas (solo en desktop) */}
-                    <td className="py-3 px-6 text-center hidden md:table-cell">
-                      <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full">
+                    {/* Response Count */}
+                    <td className="py-4 px-6 whitespace-nowrap text-center hidden md:table-cell">
+                      <span className="px-3 py-1 bg-odec-blue/10 text-odec-blue rounded-full text-xs font-bold">
                         {getResponseCount(form.id)}
                       </span>
                     </td>
-                    
-                    {/* Versión (solo en desktop) */}
-                    <td className="py-3 px-6 text-center hidden md:table-cell">
-                      {form.version}
-                    </td>
-                    
-                    {/* Acciones */}
-                    <td className="py-3 px-6 text-center">
-                      <div className="flex justify-center space-x-2">
-                        {/* Acciones solo para admin */}
+                    {/* Actions */}
+                    <td className="py-4 px-6 whitespace-nowrap text-center">
+                      <div className="flex justify-center items-center space-x-4">
+                        {(user?.role === 'admin' || user?.role === 'analista') && (
+                          <Link to={`/respuestas/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('view_responses')}>
+                            <BarChart size={20} />
+                          </Link>
+                        )}
+                        <Link to={`/vista-previa/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('preview')}>
+                          <Eye size={20} />
+                        </Link>
                         {user?.role === 'admin' && (
                           <>
-                            {/* Editar */}
-                            <Link 
-                              to={`/editar/${form.id}`} 
-                              className="text-blue-600 hover:text-blue-900" 
-                              title={t('edit')}
-                            >
-                              <Edit size={18} />
+                            <Link to={`/editar/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('edit')}>
+                              <Edit size={20} />
                             </Link>
-                            
-                            {/* Eliminar */}
-                            <button 
-                              onClick={() => setFormToDelete(form.id)} 
-                              className="text-red-600 hover:text-red-900"
-                              title={t('delete')}
-                            >
-                              <Trash2 size={18} />
+                            <button onClick={() => setFormToDelete(form.id)} className="text-gray-400 hover:text-red-600 transition-colors" title={t('delete')}>
+                              <Trash2 size={20} />
                             </button>
                           </>
                         )}
-                        
-                        {/* Vista previa */}
-                        <Link 
-                          to={`/vista-previa/${form.id}`} 
-                          className="text-green-600 hover:text-green-900" 
-                          title={t('preview')}
-                        >
-                          <Eye size={18} />
-                        </Link>
-                        
-                        {/* Ver respuestas (solo admin) */}
-                        {user?.role === 'admin' && (
-                          <Link 
-                            to={`/respuestas/${form.id}`} 
-                            className="text-purple-600 hover:text-purple-900" 
-                            title={t('view_responses')}
-                          >
-                            <BarChart size={18} />
-                          </Link>
-                        )}
-                        
-                        {/* Exportar */}
-                        <button 
-                          onClick={() => handleExportForm(form.id, form.name)} 
-                          className="text-orange-600 hover:text-orange-900"
-                          title={t('export_form')}
-                        >
-                          <Download size={18} />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -266,7 +199,7 @@ const FormsList: React.FC = () => {
         )}
       </div>
 
-      {/* Diálogo de confirmación para eliminar */}
+      {/* Confirmation Dialog */}
       <ConfirmDialog
         isOpen={!!formToDelete}
         title={t('confirm_delete')}

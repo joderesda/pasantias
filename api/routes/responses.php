@@ -50,6 +50,13 @@ class ResponsesRoutes {
      * Get responses for a specific form
      */
     private function getFormResponses($formId, $user) {
+        // Authorization check: only admin and analista can view responses
+        if ($user['role'] !== 'admin' && $user['role'] !== 'analista') {
+            http_response_code(403);
+            echo json_encode(['message' => 'Forbidden: You do not have permission to view responses.']);
+            return;
+        }
+
         try {
             $stmt = $this->db->prepare("
                 SELECT r.*, u.username 

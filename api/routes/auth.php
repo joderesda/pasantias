@@ -108,6 +108,10 @@ class AuthRoutes {
      * Login user
      */
     private function login() {
+        // Log para depuración
+        $log_file = __DIR__ . '/../../debug_login.log';
+        file_put_contents($log_file, "--- LOGIN ATTEMPT AT " . date('Y-m-d H:i:s') . " ---\n", FILE_APPEND);
+
         $input = json_decode(file_get_contents('php://input'), true);
         
         $username = $input['username'] ?? '';

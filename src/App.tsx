@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { FormProvider } from './contexts/FormContext';
@@ -11,7 +10,8 @@ import FormsList from './components/forms/FormsList';
 import FormBuilder from './components/forms/FormBuilder';
 import FormPreview from './components/forms/FormPreview';
 import FormResponses from './components/responses/FormResponses';
-import ImportExport from './components/import-export/ImportExport';
+import UserManagement from './components/admin/UserManagement';
+
 import "./i18n";
 
 function App() {
@@ -52,10 +52,10 @@ function App() {
                           <Route path="/vista-previa/:id/:responseId" element={<FormPreview />} />
                           <Route path="/respuestas/:id" element={<FormResponses />} />
                           <Route
-                            path="/importar-exportar"
+                            path="/admin/users"
                             element={
                               <PrivateRoute requiredRole="admin">
-                                <ImportExport />
+                                <UserManagement />
                               </PrivateRoute>
                             }
                           />
