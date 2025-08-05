@@ -1,8 +1,8 @@
 // Tipos de pregunta disponibles
-export type QuestionType = 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'boolean';
+export type QuestionType = 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'boolean' | 'time';
 
 // Roles de usuario
-export type UserRole = 'admin' | 'user' | 'analista';
+export type UserRole = 'admin' | 'user' | 'analista' | 'invitado';
 
 // Usuario
 export interface User {
@@ -22,14 +22,16 @@ export interface Option {
 // Estructura de una pregunta
 export interface Question {
   id: string;
+  form_id: string;
   text: string;
   type: QuestionType;
-  required: boolean;
   options?: Option[];
+  required: boolean;
   includeInPowerBI: boolean;
   powerBIFieldName?: string;
   parentId?: string;
   parentOptionId?: string;
+  order?: number;
 }
 
 // Estructura de un formulario

@@ -1,5 +1,5 @@
 import { Form, Question } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+
 
 export const generateOfflineForm = async (form: Form): Promise<string> => {
   // CSS básico sin dependencias externas para evitar problemas de CORS
@@ -71,13 +71,15 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
   
   // Function to generate HTML for a question input
   const generateQuestionInput = (question: Question) => {
+    const inputClasses = "w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300";
+
     switch (question.type) {
       case 'text':
         return `
           <input
             type="text"
             id="${question.id}"
-            class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300"
+            class="${inputClasses}"
             ${question.required ? 'required' : ''}
           />
         `;
@@ -87,17 +89,18 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
           <input
             type="number"
             id="${question.id}"
-            class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300"
+            class="${inputClasses}"
             ${question.required ? 'required' : ''}
           />
         `;
-      
+
       case 'date':
+      case 'time':
         return `
           <input
-            type="date"
+            type="${question.type}"
             id="${question.id}"
-            class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300"
+            class="${inputClasses}"
             ${question.required ? 'required' : ''}
           />
         `;
@@ -112,6 +115,7 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
                 value="true"
                 class="h-5 w-5"
                 ${question.required ? 'required' : ''}
+                onchange="updateVisibility()"
               />
               <span class="ml-2">Sí</span>
             </label>
@@ -121,6 +125,7 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
                 name="${question.id}"
                 value="false"
                 class="h-5 w-5"
+                onchange="updateVisibility()"
               />
               <span class="ml-2">No</span>
             </label>
@@ -131,9 +136,9 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
         return `
           <select
             id="${question.id}"
-            class="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300"
+            class="${inputClasses}"
             ${question.required ? 'required' : ''}
-            onchange="handleSelectChange('${question.id}')"
+            onchange="updateVisibility()"
           >
             <option value="">Seleccionar...</option>
             ${question.options?.map(option => `
@@ -152,35 +157,65 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
                   name="${question.id}"
                   value="${option.id}"
                   class="h-5 w-5 rounded"
-                  onchange="handleMultiselectChange('${question.id}')"
+                  onchange="updateVisibility()"
                 />
                 <span class="ml-2">${option.text}</span>
               </label>
             `).join('')}
           </div>
         `;
-      
+        
       default:
-        return '';
+        return `<p>Tipo de pregunta no soportado: ${question.type}</p>`;
     }
   };
 
-  // Generate HTML for all questions
-  const questionsHtml = form.questions.map(question => `
-    <div id="question-${question.id}" class="question-container ${
-      question.parentId ? 'sub-question' : ''
-    }">
-      <div class="mb-2 flex items-start">
-        <label class="block text-gray-800 font-medium">
-          ${question.text}
-          ${question.required ? '<span class="text-red-500 ml-1">*</span>' : ''}
-        </label>
+  // Generate HTML for all questions, ensuring correct order for sub-questions
+  const generateOrderedQuestionsHtml = (questions: Question[]) => {
+    const questionMap = new Map(questions.map(q => [q.id, { ...q, children: [] as Question[] }]));
+    const topLevelQuestions: Question[] = [];
+
+    questions.forEach(q => {
+      if (q.parentId && questionMap.has(q.parentId)) {
+        questionMap.get(q.parentId)!.children.push(q as any);
+      } else {
+        topLevelQuestions.push(q);
+      }
+    });
+
+    let orderedQuestions: Question[] = [];
+    const traverse = (question: Question) => {
+      orderedQuestions.push(question);
+      const node = questionMap.get(question.id);
+      if (node && node.children) {
+        // Sort children by their 'order' property if it exists, to maintain intended sequence
+        const sortedChildren = node.children.sort((a, b) => (a.order || 0) - (b.order || 0));
+        sortedChildren.forEach(traverse);
+      }
+    };
+
+    // Sort top-level questions by their 'order' property
+    const sortedTopLevel = topLevelQuestions.sort((a, b) => (a.order || 0) - (b.order || 0));
+    sortedTopLevel.forEach(traverse);
+
+    return orderedQuestions.map(question => `
+      <div id="question-${question.id}" class="question-container ${
+        question.parentId ? 'sub-question' : ''
+      }">
+        <div class="mb-2 flex items-start">
+          <label class="block text-gray-800 font-medium">
+            ${question.text}
+            ${question.required ? '<span class="text-red-500 ml-1">*</span>' : ''}
+          </label>
+        </div>
+        <div class="mt-2">
+          ${generateQuestionInput(question)}
+        </div>
       </div>
-      <div class="mt-2">
-        ${generateQuestionInput(question)}
-      </div>
-    </div>
-  `).join('');
+    `).join('');
+  };
+
+  const questionsHtml = generateOrderedQuestionsHtml(form.questions);
 
   // Generate the complete HTML document
   return `
@@ -226,39 +261,56 @@ export const generateOfflineForm = async (form: Form): Promise<string> => {
           return \`\${String(d.getDate()).padStart(2, '0')}/\${String(d.getMonth() + 1).padStart(2, '0')}/\${d.getFullYear()}\`;
         }
         
-        // Handle select change
-        function handleSelectChange(questionId) {
-          const select = document.getElementById(questionId);
-          const selectedValue = select.value;
-          
-          // Find sub-questions
-          formData.questions.forEach(question => {
-            if (question.parentId === questionId) {
-              const element = document.getElementById('question-' + question.id);
-              if (element) {
-                element.style.display = question.parentOptionId === selectedValue ? 'block' : 'none';
+        function updateVisibility() {
+          const visibleQuestionIds = new Set();
+          const formResponses = {};
+
+          formData.questions.forEach(q => {
+            if (q.type === 'select' || q.type === 'boolean') {
+              const el = document.getElementById(q.id);
+              if (el) formResponses[q.id] = el.value;
+            } else if (q.type === 'multiselect') {
+              const els = document.getElementsByName(q.id);
+              formResponses[q.id] = Array.from(els)
+                .filter(cb => cb.checked)
+                .map(cb => cb.value);
+            }
+          });
+
+          function getVisibleIds(question) {
+            visibleQuestionIds.add(question.id);
+
+            const subQuestions = formData.questions.filter(q => q.parentId === question.id);
+            if (subQuestions.length === 0) return;
+            
+            const parentResponse = formResponses[question.id];
+            if (!parentResponse) return;
+
+            subQuestions.forEach(subQuestion => {
+              let shouldShow = false;
+              if (question.type === 'select' || question.type === 'boolean') {
+                shouldShow = subQuestion.parentOptionId === parentResponse;
+              } else if (question.type === 'multiselect') {
+                shouldShow = Array.isArray(parentResponse) && parentResponse.includes(subQuestion.parentOptionId);
               }
+
+              if (shouldShow) {
+                getVisibleIds(subQuestion);
+              }
+            });
+          }
+
+          formData.questions.filter(q => !q.parentId).forEach(getVisibleIds);
+
+          formData.questions.forEach(q => {
+            const element = document.getElementById('question-' + q.id);
+            if (element) {
+              element.style.display = visibleQuestionIds.has(q.id) ? 'block' : 'none';
             }
           });
         }
-        
-        // Handle multiselect change
-        function handleMultiselectChange(questionId) {
-          const checkboxes = document.getElementsByName(questionId);
-          const selectedValues = Array.from(checkboxes)
-            .filter(cb => cb.checked)
-            .map(cb => cb.value);
-          
-          // Find sub-questions
-          formData.questions.forEach(question => {
-            if (question.parentId === questionId) {
-              const element = document.getElementById('question-' + question.id);
-              if (element) {
-                element.style.display = selectedValues.includes(question.parentOptionId) ? 'block' : 'none';
-              }
-            }
-          });
-        }
+
+        document.addEventListener('DOMContentLoaded', updateVisibility);
         
         // Get question value for export
         function getQuestionValue(question) {

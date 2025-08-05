@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
 
-import { Form, FormResponse, FormContextState } from '../types';
+import { Form, FormResponse, FormContextState, User } from '../types';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from './AuthContext';
@@ -35,8 +35,8 @@ const transformFormFromBackend = (backendForm: any): Form => {
     try {
       questions = JSON.parse(backendForm.questions);
     } catch (error) {
-      console.error('Error parsing questions JSON:', error);
-      questions = [];
+      console.error(`Error parsing questions JSON for form ${backendForm.id}:`, error);
+      throw new Error('The form data is corrupt and cannot be displayed.');
     }
   } else if (Array.isArray(backendForm.questions)) {
     questions = backendForm.questions;
@@ -141,6 +141,7 @@ const formReducer = (state: FormContextState, action: FormAction): FormContextSt
 
 // Definición del contexto
 interface FormContextProps extends FormContextState {
+  user: User | null;
   loadForms: () => Promise<void>;
   loadForm: (id: string) => Promise<void>;
   loadResponses: (formId: string) => Promise<void>;
@@ -381,10 +382,13 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Prepara los datos de la respuesta
       const responseToSave = {
+        ...(responseId && { id: responseId }),
         formId: responseData.formId,
         formVersion: responseData.formVersion,
         responses: responseData.responses,
-        updatedOffline: responseData.updatedOffline || false
+        updatedOffline: responseData.updatedOffline || false,
+        userId: responseData.userId,
+        username: responseData.username,
       };
       
       console.log('Guardando respuesta:', responseToSave);
@@ -414,12 +418,17 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const result = await response.json();
       
-      // Reload responses for this form
-      await loadResponses(responseData.formId);
-      
+      // Actualiza el estado local
+      const savedResponse = transformResponseFromBackend(result.response || result);
+      if (responseId) {
+        dispatch({ type: 'UPDATE_RESPONSE', payload: savedResponse });
+      } else {
+        dispatch({ type: 'ADD_RESPONSE', payload: savedResponse });
+      }
+
       toast.success(t('response_saved_successfully'));
       
-      return result.id || responseId || '';
+      return savedResponse.id || '';
     } catch (error: any) {
       console.error('Error saving response:', error);
       dispatch({ type: 'SET_ERROR', payload: error.message });
@@ -428,7 +437,7 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [t, loadResponses]);
+  }, [t, dispatch]);
 
   /**
    * Elimina una respuesta de formulario de la API
@@ -640,7 +649,8 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     importForms,
     importResponses,
     exportForms,
-    exportFormResponses
+    exportFormResponses,
+    user
   };
 
   return <FormContext.Provider value={value}>{children}</FormContext.Provider>;

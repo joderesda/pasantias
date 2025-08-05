@@ -424,6 +424,16 @@ const FormResponses: React.FC = () => {
           />
         );
 
+      case 'time':
+        return (
+          <input
+            type="time"
+            value={value || ''}
+            onChange={(e) => setEditedValues({ ...editedValues, [question.id]: e.target.value })}
+            className="w-full px-2 py-1 border rounded"
+          />
+        );
+
       case 'boolean':
         return (
           <div className="space-x-4">

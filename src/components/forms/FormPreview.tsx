@@ -20,7 +20,8 @@ const FormPreview: React.FC = () => {
     responses, 
     loadResponses, 
     isLoading,
-    importResponses
+    importResponses,
+    user
   } = useForm();
   
   const [formResponses, setResponses] = useState<Record<string, any>>({});
@@ -63,44 +64,45 @@ const FormPreview: React.FC = () => {
   // Función recursiva mejorada para obtener preguntas visibles incluyendo subpreguntas anidadas
   const getVisibleQuestions = (): Question[] => {
     if (!currentForm?.questions) return [];
-    
+
     const visibleQuestions: Question[] = [];
     const processedQuestions = new Set<string>();
-    
+
     const processQuestion = (question: Question, depth: number = 0) => {
       if (processedQuestions.has(question.id) || depth > 10) return;
-      
+
       visibleQuestions.push(question);
       processedQuestions.add(question.id);
-      
-      if (question.type === 'select' || question.type === 'multiselect') {
-        const parentResponse = formResponses[question.id];
-        
-        if (parentResponse) {
-          const subQuestions = currentForm.questions.filter(q => q.parentId === question.id);
-          
-          subQuestions.forEach(subQuestion => {
-            let shouldShow = false;
-            
-            if (question.type === 'select') {
-              shouldShow = subQuestion.parentOptionId === parentResponse;
-            } else if (question.type === 'multiselect') {
-              shouldShow = Array.isArray(parentResponse) && 
-                          parentResponse.includes(subQuestion.parentOptionId);
-            }
-            
-            if (shouldShow) {
-              processQuestion(subQuestion, depth + 1);
-            }
-          });
-        }
+
+      const subQuestions = currentForm.questions.filter(q => q.parentId === question.id);
+      if (subQuestions.length === 0) {
+        return;
       }
+      
+      const parentResponse = formResponses[question.id];
+      if (!parentResponse) {
+        return;
+      }
+
+      subQuestions.forEach(subQuestion => {
+        let shouldShow = false;
+        
+        if (question.type === 'select') {
+          shouldShow = subQuestion.parentOptionId === parentResponse;
+        } else if (question.type === 'multiselect') {
+          shouldShow = Array.isArray(parentResponse) && parentResponse.includes(subQuestion.parentOptionId);
+        }
+
+        if (shouldShow) {
+          processQuestion(subQuestion, depth + 1);
+        }
+      });
     };
-    
+
     currentForm.questions
       .filter(q => !q.parentId)
       .forEach(q => processQuestion(q));
-    
+
     return visibleQuestions;
   };
 
@@ -183,11 +185,11 @@ const FormPreview: React.FC = () => {
         formVersion: currentForm.version,
         responses: questionResponses,
         updatedOffline: false,
-        userId: '',
-        username: ''
+        userId: user?.id || '',
+        username: user?.username || ''
       };
       
-      await saveResponse(formResponse);
+      await saveResponse(formResponse, responseId);
       toast.success(t('Respuestas guardadas correctamente'));
       navigate(`/respuestas/${id}`);
     } catch (error) {
@@ -316,7 +318,19 @@ const FormPreview: React.FC = () => {
             type="date"
             value={formResponses[question.id] || ''}
             onChange={(e) => handleInputChange(question.id, e.target.value)}
-            className={`w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 ${
+            className={`w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 ${
+              errors[question.id] ? 'border-red-500' : 'border-gray-300'
+            }`}
+          />
+        );
+        
+      case 'time':
+        return (
+          <input
+            type="time"
+            value={formResponses[question.id] || ''}
+            onChange={(e) => handleInputChange(question.id, e.target.value)}
+            className={`w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 ${
               errors[question.id] ? 'border-red-500' : 'border-gray-300'
             }`}
           />

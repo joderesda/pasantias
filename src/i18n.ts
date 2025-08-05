@@ -16,6 +16,7 @@ i18n
           forms: 'Forms',
           create_form: 'Create Form',
           import_export: 'Import/Export',
+          user_management: 'User Management',
           
           // Forms
           form_name: 'Form Name',
@@ -75,9 +76,11 @@ i18n
           app_title: 'Observatorio de Convivencia y Seguridad Ciudadana del Magdalena',
           
           // Navigation
+          forms_list: 'Lista de Formularios',
           forms: 'Formularios',
           create_form: 'Crear Formulario',
           import_export: 'Importar/Exportar',
+          user_management: 'Gestión de Usuarios',
           
           // Forms
           form_name: 'Nombre del Formulario',

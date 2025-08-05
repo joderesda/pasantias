@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { User, UserRole } from '../../types';
-import { ShieldCheck, Users, Loader2 } from 'lucide-react';
+import { ShieldCheck, Users, Loader2, Trash2 } from 'lucide-react';
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -31,6 +31,22 @@ const UserManagement: React.FC = () => {
       setIsLoading(false);
     }
   }, [user, fetchUsers]);
+
+  const handleDeleteUser = async (userId: string) => {
+    if (window.confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
+      try {
+        await fetch(`/api/users/${userId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        toast.success('Usuario eliminado con éxito.');
+        setUsers(users.filter(u => u.id !== userId));
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        toast.error('No se pudo eliminar el usuario.');
+      }
+    }
+  };
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     try {
@@ -64,6 +80,7 @@ const UserManagement: React.FC = () => {
     admin: 'bg-odec-blue text-white',
     analista: 'bg-blue-100 text-odec-blue',
     user: 'bg-gray-200 text-gray-800',
+    invitado: 'bg-green-100 text-green-800',
   };
 
   return (
@@ -94,7 +111,7 @@ const UserManagement: React.FC = () => {
                     Rol Actual
                   </th>
                   <th scope="col" className="py-3 px-6 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Cambiar Rol
+                    Acciones
                   </th>
                 </tr>
               </thead>
@@ -114,15 +131,24 @@ const UserManagement: React.FC = () => {
                       {u.id === user?.id ? (
                          <span className="text-sm text-gray-500 italic">No se puede cambiar el rol propio</span>
                       ) : (
-                        <select
-                          value={u.role}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
-                          className="form-select block w-full max-w-xs border-gray-300 rounded-lg shadow-sm focus:border-odec-blue focus:ring focus:ring-odec-blue focus:ring-opacity-50 transition"
-                        >
-                          <option value="user">Usuario</option>
-                          <option value="admin">Administrador</option>
-                          <option value="analista">Analista</option>
-                        </select>
+                        <div className="flex items-center space-x-2">
+                          <select
+                            value={u.role}
+                            onChange={(e) => handleRoleChange(u.id, e.target.value as UserRole)}
+                            className="form-select block w-full max-w-xs border-gray-300 rounded-lg shadow-sm focus:border-odec-blue focus:ring focus:ring-odec-blue focus:ring-opacity-50 transition"
+                          >
+                            <option value="user">Usuario</option>
+                            <option value="admin">Administrador</option>
+                            <option value="analista">Analista</option>
+                            <option value="invitado">Invitado</option>
+                          </select>
+                          <button 
+                            onClick={() => handleDeleteUser(u.id)} 
+                            className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={20} />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>

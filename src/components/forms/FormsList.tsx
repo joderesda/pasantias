@@ -171,14 +171,16 @@ const FormsList: React.FC = () => {
                     {/* Actions */}
                     <td className="py-4 px-6 whitespace-nowrap text-center">
                       <div className="flex justify-center items-center space-x-4">
-                        {(user?.role === 'admin' || user?.role === 'analista') && (
+                        {(user?.role === 'admin' || user?.role === 'analista' || user?.role === 'invitado') && (
                           <Link to={`/respuestas/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('view_responses')}>
                             <BarChart size={20} />
                           </Link>
                         )}
-                        <Link to={`/vista-previa/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('preview')}>
-                          <Eye size={20} />
-                        </Link>
+                        {user?.role !== 'invitado' && (
+                          <Link to={`/vista-previa/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('preview')}>
+                            <Eye size={20} />
+                          </Link>
+                        )}
                         {user?.role === 'admin' && (
                           <>
                             <Link to={`/editar/${form.id}`} className="text-gray-400 hover:text-odec-blue transition-colors" title={t('edit')}>

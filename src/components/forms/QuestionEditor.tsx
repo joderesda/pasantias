@@ -1,6 +1,6 @@
 // Importación de dependencias
 import React, { useState } from 'react'; // React y su hook de estado
-import { useTranslation } from 'react-i18next'; // Para internacionalización
+
 import { v4 as uuidv4 } from 'uuid'; // Generador de IDs únicos
 import { Question, QuestionType, Option } from '../../types'; // Tipos de datos
 import { ChevronUp, ChevronDown, Plus, Trash2 } from 'lucide-react'; // Iconos
@@ -39,7 +39,7 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
   nestLevel = 0, // Valor por defecto para el nivel de anidamiento
 }) => {
   // Hooks de estado
-  const { t } = useTranslation(); // Hook para internacionalización
+
   const [isExpanded, setIsExpanded] = useState(true); // Controla si la pregunta está expandida
   const [showSubQuestionForm, setShowSubQuestionForm] = useState<string | null>(null); // ID de opción para la que se muestra formulario de subpregunta
   const [newSubQuestion, setNewSubQuestion] = useState<Question | null>(null); // Nueva subpregunta en creación
@@ -102,12 +102,6 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
    */
   const handleDeleteOption = (optionId: string) => {
     if (!question.options) return;
-    
-    // Nota: Aquí se menciona eliminar subpreguntas pero no se implementa completamente
-    // En una implementación real, necesitarías llamar a onDelete para cada subpregunta
-    const subQuestionIds = allQuestions
-      .filter(q => q.parentOptionId === optionId)
-      .map(q => q.id);
     
     const updatedOptions = question.options.filter(opt => opt.id !== optionId);
     
@@ -249,7 +243,6 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
                   onUpdate={onUpdate}
                   onDelete={() => {
                     // Nota: Esta implementación no es completa para eliminar
-                    const updatedQuestions = allQuestions.filter(q => q.id !== subQuestion.id);
                     onUpdate({...question});
                   }}
                   onMoveUp={() => {}}
@@ -297,6 +290,7 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
               {question.type === 'select' && 'Selección'}
               {question.type === 'multiselect' && 'Selección Múltiple'}
               {question.type === 'date' && 'Fecha'}
+              {question.type === 'time' && 'Hora'}
               {question.type === 'boolean' && 'Sí/No'}
             </span>
           </div>
@@ -376,6 +370,7 @@ const QuestionEditor: React.FC<QuestionEditorProps> = ({
                 <option value="select">Selección</option>
                 <option value="multiselect">Selección Múltiple</option>
                 <option value="date">Fecha</option>
+                <option value="time">Hora</option>
                 <option value="boolean">Sí/No</option>
               </select>
             </div>

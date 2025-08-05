@@ -30,6 +30,11 @@ class UsersRoutes {
                     $this->updateUserRole($id);
                 }
                 break;
+            case 'DELETE':
+                if ($endpoint === '/users' && $id !== null) {
+                    $this->deleteUser($id);
+                }
+                break;
             default:
                 http_response_code(405);
                 echo json_encode(['message' => 'Method Not Allowed']);
@@ -49,10 +54,27 @@ class UsersRoutes {
         }
     }
 
+    private function deleteUser($id) {
+        try {
+            $stmt = $this->pdo->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->execute([$id]);
+
+            if ($stmt->rowCount() > 0) {
+                echo json_encode(['message' => 'User deleted successfully.']);
+            } else {
+                http_response_code(404);
+                echo json_encode(['message' => 'User not found.']);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['message' => 'Error deleting user: ' . $e->getMessage()]);
+        }
+    }
+
     private function updateUserRole($id) {
         $data = json_decode(file_get_contents('php://input'), true);
 
-        if (!isset($data['role']) || !in_array($data['role'], ['user', 'admin', 'analista'])) {
+        if (!isset($data['role']) || !in_array($data['role'], ['user', 'admin', 'analista', 'invitado'])) {
             http_response_code(400);
             echo json_encode(['message' => 'Invalid role provided.']);
             return;
