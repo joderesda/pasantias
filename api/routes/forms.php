@@ -21,6 +21,14 @@ class FormsRoutes {
     public function handleRequest($method, $path, $id = null) {
         $user = $this->auth->authenticate();
 
+        if ($path === 'stats/weekly') {
+            if ($method === 'GET') {
+                $formId = $_GET['formId'] ?? null;
+                $this->getWeeklyStats($user, $formId);
+                return;
+            }
+        }
+
         switch ($method) {
             case 'GET':
                 if ($id) {
@@ -30,7 +38,6 @@ class FormsRoutes {
                 }
                 break;
             case 'POST':
-                // POST should only be for creating new forms, not on a specific ID
                 if ($id) {
                     http_response_code(405); // Method Not Allowed
                     echo json_encode(['message' => 'Cannot POST to a specific resource ID. Use PUT to update.']);
@@ -359,6 +366,102 @@ class FormsRoutes {
             error_log("Stack trace: " . $e->getTraceAsString());
             http_response_code(500);
             echo json_encode(['message' => 'Server error: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Get weekly form completion statistics
+     */
+    private function getWeeklyStats($user, $formId = null) {
+        try {
+            if ($formId) {
+                $formsQuery = "SELECT id, questions FROM forms WHERE id = ?";
+                $formsStmt = $this->db->prepare($formsQuery);
+                $formsStmt->execute([$formId]);
+            } else {
+                $formsQuery = "SELECT id, questions FROM forms";
+                $formsStmt = $this->db->prepare($formsQuery);
+                $formsStmt->execute();
+            }
+            $forms = $formsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$forms) {
+                echo json_encode(['green' => 0, 'yellow' => 0, 'red' => 0, 'averageCompletion' => 0]);
+                return;
+            }
+
+            $stats = ['green' => 0, 'yellow' => 0, 'red' => 0];
+            $oneWeekAgo = date('Y-m-d H:i:s', strtotime('-7 days'));
+            $cumulativeAnsweredQuestions = 0;
+            $cumulativeTotalMainQuestions = 0;
+
+            foreach ($forms as $form) {
+                $currentFormId = $form['id'];
+                $questions = json_decode($form['questions'], true) ?: [];
+                
+                $mainQuestions = array_filter($questions, function($q) {
+                    return (!isset($q['deleted']) || !$q['deleted']) && !isset($q['parentId']);
+                });
+                $totalMainQuestions = count($mainQuestions);
+
+                if ($totalMainQuestions === 0) {
+                    continue;
+                }
+
+                $responsesQuery = "SELECT responses FROM responses WHERE form_id = ? AND created_at >= ?";
+                $responsesStmt = $this->db->prepare($responsesQuery);
+                $responsesStmt->execute([$currentFormId, $oneWeekAgo]);
+                $responses = $responsesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($responses as $response) {
+                    $answersFromResponse = json_decode($response['responses'], true) ?: [];
+                    $answeredCount = 0;
+
+                    foreach ($mainQuestions as $mainQuestion) {
+                        $questionId = $mainQuestion['id'];
+                        $answerFound = false;
+                        foreach ($answersFromResponse as $answer) {
+                            if ($answer['questionId'] === $questionId) {
+                                if (isset($answer['value']) && $answer['value'] !== '' && (!is_array($answer['value']) || count($answer['value']) > 0)) {
+                                    $answerFound = true;
+                                }
+                                break;
+                            }
+                        }
+                        if ($answerFound) {
+                            $answeredCount++;
+                        }
+                    }
+                    
+                    $completionPercentage = ($totalMainQuestions > 0) ? ($answeredCount / $totalMainQuestions) * 100 : 0;
+
+                    if ($completionPercentage >= 98) {
+                        $stats['green']++;
+                    } elseif ($completionPercentage >= 70) {
+                        $stats['yellow']++;
+                    } else {
+                        $stats['red']++;
+                    }
+
+                    $cumulativeAnsweredQuestions += $answeredCount;
+                    $cumulativeTotalMainQuestions += $totalMainQuestions;
+                }
+            }
+
+            $averageCompletion = ($cumulativeTotalMainQuestions > 0) ? ($cumulativeAnsweredQuestions / $cumulativeTotalMainQuestions) * 100 : 0;
+
+            $result = [
+                'green' => $stats['green'],
+                'yellow' => $stats['yellow'],
+                'red' => $stats['red'],
+                'averageCompletion' => $averageCompletion
+            ];
+
+            header('Content-Type: application/json');
+            echo json_encode($result);
+        } catch (PDOException $e) {
+            http_response_code(500);
+            echo json_encode(['message' => 'Error en la base de datos: ' . $e->getMessage()]);
         }
     }
 

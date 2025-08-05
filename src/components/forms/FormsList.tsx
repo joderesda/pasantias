@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Edit, Eye, Trash2, BarChart, FileText } from 'lucide-react'; // Íconos
+import { Edit, Eye, Trash2, BarChart, FileText, Share2 } from 'lucide-react'; // Íconos
 import { useForm } from '../../contexts/FormContext'; // Contexto de formularios
 import { useAuth } from '../../contexts/AuthContext'; // Contexto de autenticación
 import { useTranslation } from 'react-i18next'; // Internacionalización
 
 import ConfirmDialog from '../ui/ConfirmDialog'; // Diálogo de confirmación
 import Spinner from '../ui/Spinner'; // Componente de carga
+import WeeklyReport from './WeeklyReport'; // Componente de reporte semanal
+import ShareFormModal from './ShareFormModal'; // Componente para compartir formulario
 
 const FormsList: React.FC = () => {
   // ======================
@@ -26,6 +28,7 @@ const FormsList: React.FC = () => {
 
   // Estados locales
   const [formToDelete, setFormToDelete] = useState<string | null>(null); // ID del formulario a eliminar
+  const [sharingForm, setSharingForm] = useState<{id: string, name: string} | null>(null); // Formulario a compartir
   const [searchTerm, setSearchTerm] = useState(''); // Término de búsqueda
   const [responsesLoaded, setResponsesLoaded] = useState<Set<string>>(new Set()); // Track which forms have responses loaded
 
@@ -92,7 +95,8 @@ const FormsList: React.FC = () => {
   // ======================
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto">
+      <WeeklyReport />
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         {/* Header and Search */}
         <div className="p-6 border-b border-gray-200">
@@ -189,6 +193,13 @@ const FormsList: React.FC = () => {
                             <button onClick={() => setFormToDelete(form.id)} className="text-gray-400 hover:text-red-600 transition-colors" title={t('delete')}>
                               <Trash2 size={20} />
                             </button>
+                            <button 
+                              onClick={() => setSharingForm({ id: form.id, name: form.name })} 
+                              className="text-gray-400 hover:text-green-600 transition-colors" 
+                              title={t('share')}
+                            >
+                              <Share2 size={20} />
+                            </button>
                           </>
                         )}
                       </div>
@@ -200,6 +211,16 @@ const FormsList: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Share Form Modal */}
+      {sharingForm && (
+        <ShareFormModal 
+          isOpen={!!sharingForm}
+          onClose={() => setSharingForm(null)}
+          formId={sharingForm.id}
+          formName={sharingForm.name}
+        />
+      )}
 
       {/* Confirmation Dialog */}
       <ConfirmDialog

@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster } from './components/ui/use-toast';
 import { FormProvider } from './contexts/FormContext';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/auth/PrivateRoute';
@@ -11,6 +11,8 @@ import FormBuilder from './components/forms/FormBuilder';
 import FormPreview from './components/forms/FormPreview';
 import FormResponses from './components/responses/FormResponses';
 import UserManagement from './components/admin/UserManagement';
+import TestQRPage from './pages/TestQRPage';
+import PublicFormPage from './pages/PublicFormPage';
 
 import "./i18n";
 
@@ -23,6 +25,9 @@ function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/formulario/:formId" element={<PublicFormPage />} />
+              <Route path="/test-qr/:formId" element={<TestQRPage />} />
+              <Route path="/test-qr" element={<TestQRPage />} />
               <Route
                 path="/*"
                 element={
@@ -66,7 +71,7 @@ function App() {
                 }
               />
             </Routes>
-            <Toaster position="bottom-right" />
+            <Toaster />
           </div>
         </Router>
       </FormProvider>

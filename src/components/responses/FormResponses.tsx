@@ -12,6 +12,7 @@ import { FormResponse, QuestionResponse, Question } from '../../types';
 interface FilterState {
   dateFrom: string;
   dateTo: string;
+  userId: string;
   questionFilters: Record<string, string | string[]>;
   sortBy: string;
   sortOrder: 'asc' | 'desc';
@@ -31,6 +32,7 @@ const FormResponses: React.FC = () => {
   const [filters, setFilters] = useState<FilterState>({
     dateFrom: '',
     dateTo: '',
+    userId: '',
     questionFilters: {},
     sortBy: 'createdAt',
     sortOrder: 'desc'
@@ -198,29 +200,29 @@ const FormResponses: React.FC = () => {
 
   // Función para filtrar y ordenar respuestas
   const getFilteredAndSortedResponses = () => {
-    if (!id) return [];
-    
-    let filteredResponses = [...(responses[id] || [])];
-    
-    // Filtro por fecha
+    let filtered = responses[id || ''] || [];
+
+    // Filtrado por fecha
     if (filters.dateFrom) {
-      const fromDate = new Date(filters.dateFrom).getTime();
-      filteredResponses = filteredResponses.filter(r => r.createdAt >= fromDate);
+      filtered = filtered.filter(r => new Date(r.createdAt) >= new Date(filters.dateFrom));
     }
-    
     if (filters.dateTo) {
-      const toDate = new Date(filters.dateTo).getTime() + (24 * 60 * 60 * 1000) - 1; // Fin del día
-      filteredResponses = filteredResponses.filter(r => r.createdAt <= toDate);
+      filtered = filtered.filter(r => new Date(r.createdAt) <= new Date(filters.dateTo));
     }
-    
+
+    // Filtrado por usuario
+    if (filters.userId) {
+      filtered = filtered.filter(r => r.userId === filters.userId);
+    }
+
     // Filtros por preguntas
     Object.entries(filters.questionFilters).forEach(([questionId, filterValue]) => {
       if (!filterValue || (Array.isArray(filterValue) && filterValue.length === 0)) return;
-      
-      filteredResponses = filteredResponses.filter(response => {
+
+      filtered = filtered.filter(response => {
         const questionResponse = response.responses.find(r => r.questionId === questionId);
         if (!questionResponse) return false;
-        
+
         if (Array.isArray(filterValue)) {
           // Filtro para multiselect
           if (!Array.isArray(questionResponse.value)) return false;
@@ -235,12 +237,12 @@ const FormResponses: React.FC = () => {
         }
       });
     });
-    
+
     // Ordenamiento
-    filteredResponses.sort((a, b) => {
+    filtered.sort((a, b) => {
       let aValue: any;
       let bValue: any;
-      
+
       if (filters.sortBy === 'createdAt') {
         aValue = a.createdAt;
         bValue = b.createdAt;
@@ -254,15 +256,15 @@ const FormResponses: React.FC = () => {
         aValue = aResponse?.value || '';
         bValue = bResponse?.value || '';
       }
-      
+
       if (filters.sortOrder === 'asc') {
         return aValue > bValue ? 1 : -1;
       } else {
         return aValue < bValue ? 1 : -1;
       }
     });
-    
-    return filteredResponses;
+
+    return filtered;
   };
 
   const handleFilterChange = (key: keyof FilterState, value: any) => {
@@ -286,6 +288,7 @@ const FormResponses: React.FC = () => {
     setFilters({
       dateFrom: '',
       dateTo: '',
+      userId: '',
       questionFilters: {},
       sortBy: 'createdAt',
       sortOrder: 'desc'
@@ -348,6 +351,8 @@ const FormResponses: React.FC = () => {
         return String(questionResponse.value || '');
     }
   };
+
+
 
   const renderEditableCell = (question: Question, _responseId: string) => {
     if (!currentForm) return null;
@@ -543,105 +548,115 @@ const FormResponses: React.FC = () => {
       </div>
     );
   }
-  
-  const formResponses = getFilteredAndSortedResponses();
+
+  const filteredAndSortedResponses = getFilteredAndSortedResponses();
   const visibleQuestions = getAllVisibleQuestions();
-  
+
+  const uniqueUsers = Array.from(new Set((responses[id || ''] || []).map(r => r.userId)))
+    .map(userId => {
+      const response = (responses[id || ''] || []).find(r => r.userId === userId);
+      return { id: userId, name: response?.username || userId };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <div className="container mx-auto">
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-          <div>
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-4"
-            >
-              <ArrowLeft size={16} className="mr-1" /> Volver
-            </button>
-            <h1 className="text-2xl font-bold text-gray-800">
-              Respuestas: {currentForm.name}
-            </h1>
-            <p className="text-sm text-gray-600 mt-2">
-              Total de respuestas: {responses[id || '']?.length || 0} | Filtradas: {formResponses.length}
-            </p>
+        <div className="mb-6">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
+                className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 mb-2"
+              >
+                <ArrowLeft size={16} className="mr-1" /> Volver a Formularios
+              </button>
+              <h1 className="text-3xl font-bold text-gray-800">Respuestas: {currentForm.name}</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                Mostrando {filteredAndSortedResponses.length} de {responses[id || '']?.length || 0} respuestas
+              </p>
+            </div>
+            <div className="flex space-x-2 mt-2">
+              <Link to={`/forms/${id}/stats`} className="px-4 py-2 rounded-md flex items-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium">
+                <BarChart size={16} className="mr-2" />
+                Estadísticas
+              </Link>
+              <button
+                type="button"
+                onClick={handleExportResponses}
+                disabled={isExporting || filteredAndSortedResponses.length === 0}
+                className={`px-4 py-2 rounded-md flex items-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors disabled:bg-gray-200 disabled:cursor-not-allowed text-sm font-medium`}
+              >
+                <Download size={16} className="mr-2" />
+                {isExporting ? 'Exportando...' : 'Exportar'}
+              </button>
+            </div>
           </div>
-          
-          <div className="flex flex-col md:flex-row gap-3 mt-4 md:mt-0">
+
+          <div className="p-3 bg-gray-50 rounded-lg border flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="dateFrom" className="text-sm font-medium text-gray-700">Desde:</label>
+              <input
+                type="date"
+                id="dateFrom"
+                value={filters.dateFrom}
+                onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="dateTo" className="text-sm font-medium text-gray-700">Hasta:</label>
+              <input
+                type="date"
+                id="dateTo"
+                value={filters.dateTo}
+                onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="userFilter" className="text-sm font-medium text-gray-700">Usuario:</label>
+              <select
+                id="userFilter"
+                value={filters.userId}
+                onChange={(e) => handleFilterChange('userId', e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 min-w-[150px]"
+              >
+                <option value="">Todos</option>
+                {uniqueUsers.map(user => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-grow"></div>
             <button
-              type="button"
               onClick={() => setShowFilters(!showFilters)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center"
+              className="px-4 py-1.5 rounded-md flex items-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium"
             >
-              <Filter size={16} className="mr-2" /> 
-              {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+              <Filter size={16} className="mr-2" />
+              {showFilters ? 'Ocultar filtros avanzados' : 'Más filtros'}
             </button>
-            
             <button
-              type="button"
-              onClick={handleExportResponses}
-              disabled={isExporting || formResponses.length === 0}
-              className={`px-4 py-2 rounded-md flex items-center ${
-                formResponses.length === 0
-                  ? 'bg-gray-300 cursor-not-allowed text-gray-500'
-                  : 'bg-green-600 text-white hover:bg-green-700 transition-colors'
-              }`}
+              onClick={clearFilters}
+              className="px-4 py-1.5 rounded-md flex items-center bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium"
             >
-              {isExporting ? (
-                <Spinner size="sm" color="white" />
-              ) : (
-                <>
-                  <Download size={16} className="mr-2" /> Exportar Respuestas
-                </>
-              )}
+              Limpiar Filtros
             </button>
-            
-            <Link
-              to={`/vista-previa/${id}`}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center"
-            >
-              <Eye size={16} className="mr-2" /> Completar Nueva Respuesta
-            </Link>
           </div>
         </div>
 
-        {/* Panel de filtros */}
         {showFilters && (
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="bg-gray-50 p-4 rounded-lg mb-6 border">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Filtros Avanzados</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Fecha desde:
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateFrom}
-                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Fecha hasta:
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateTo}
-                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Ordenar por:
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ordenar por:</label>
                 <div className="flex gap-2">
                   <select
                     value={filters.sortBy}
                     onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                    className="flex-1 px-3 py-2 border rounded-md"
+                    className="flex-1 px-3 py-2 border rounded-md bg-white shadow-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="createdAt">Fecha</option>
                     <option value="username">Usuario</option>
@@ -653,171 +668,144 @@ const FormResponses: React.FC = () => {
                   </select>
                   <button
                     onClick={() => handleFilterChange('sortOrder', filters.sortOrder === 'asc' ? 'desc' : 'asc')}
-                    className="px-3 py-2 border rounded-md hover:bg-gray-100"
+                    className="p-2 border rounded-md bg-white shadow-sm hover:bg-gray-50"
                   >
                     {filters.sortOrder === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </button>
                 </div>
               </div>
             </div>
-            
-            <div className="flex justify-end">
-              <button
-                onClick={clearFilters}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-              >
-                Limpiar Filtros
-              </button>
-            </div>
           </div>
         )}
-        
-        {formResponses.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <div className="flex justify-center mb-4">
-              <BarChart size={48} className="text-gray-400" />
-            </div>
-            <p className="text-gray-500">
-              {(responses[id || '']?.length || 0) === 0 ? 'No hay respuestas' : 'No hay respuestas que coincidan con los filtros'}
-            </p>
-            <p className="text-sm text-gray-400 mt-2">
-              Complete el formulario o importe respuestas para verlas aquí
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100">
-                    Fecha / Usuario
-                  </th>
-                  
-                  {visibleQuestions.map((question) => {
-                    const nestLevel = question.parentId ? 
-                      currentForm.questions.filter(q => q.id === question.parentId).length : 0;
-                    
-                    return (
-                      <th 
-                        key={question.id} 
-                        className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]"
-                      >
-                        <div className="space-y-2">
-                          <div className={nestLevel > 0 ? 'pl-4 border-l-2 border-l-green-300' : ''}>
-                            {question.text}
-                            {nestLevel > 0 && (
-                              <span className="text-xs text-gray-400 block">
-                                (Subpregunta)
-                              </span>
-                            )}
-                          </div>
-                          {showFilters && (
-                            <div className="mt-2">
-                              {renderQuestionFilter(question)}
-                            </div>
-                          )}
-                        </div>
-                      </th>
-                    );
-                  })}
-                  
-                  <th className="py-3 px-4 border-b text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              
-              <tbody className="divide-y divide-gray-200">
-                {formResponses.map((response) => {
-                  const completionPercentage = calculateCompletionPercentage(response);
-                  const completionColorClass = getCompletionColor(completionPercentage);
-                  
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 border-separate border-spacing-0">
+            <thead className="bg-gray-100">
+              <tr>
+                <th 
+                  className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-20 cursor-pointer"
+                  onClick={() => handleFilterChange('sortBy', 'createdAt')}
+                >
+                  Información
+                </th>
+                
+                {visibleQuestions.map((question) => {
+                  const nestLevel = currentForm.questions.filter(q => q.id === question.id)[0]?.text.split('__').length - 1 || 0;
                   return (
-                    <tr key={response.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm border-b sticky left-0 bg-white">
-                        <div className="flex flex-col">
-                          <span className="font-medium">
-                            {formatDateDisplay(response.createdAt)}
-                          </span>
-                          <span className="text-sm text-gray-600 mt-1">
-                            {response.username || 'Usuario Anónimo'}
-                          </span>
-                          <span className={`text-xs mt-1 px-2 py-1 rounded-full ${completionColorClass}`}>
-                            {completionPercentage}% completo
-                          </span>
-                          {response.updatedOffline && (
-                            <span className="text-xs mt-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full">
-                              Offline
-                            </span>
-                          )}
+                    <th 
+                      key={question.id} 
+                      className="py-3 px-4 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]"
+                    >
+                      <div className="space-y-2">
+                        <div className={nestLevel > 0 ? 'pl-4 border-l-2 border-l-green-300' : ''}>
+                          {question.text}
                         </div>
-                      </td>
-                      
-                      {visibleQuestions.map((question) => (
-                        <td key={question.id} className="py-3 px-4 text-sm text-gray-800 border-b">
-                          {editingResponse === response.id ? (
-                            renderEditableCell(question, response.id)
-                          ) : (
-                            <div className="max-w-xs truncate" title={getFormattedResponseValue(question.id, response)}>
-                              {getFormattedResponseValue(question.id, response)}
-                            </div>
-                          )}
-                        </td>
-                      ))}
-                      
-                      <td className="py-3 px-4 text-sm border-b">
-                        <div className="flex justify-center space-x-2">
-                          {editingResponse === response.id ? (
-                            <>
-                              <button
-                                onClick={handleSaveEdit}
-                                className="text-green-600 hover:text-green-800 transition-colors"
-                                title="Guardar cambios"
-                              >
-                                <Save size={16} />
-                              </button>
-                              <button
-                                onClick={cancelEditing}
-                                className="text-gray-600 hover:text-gray-800 transition-colors"
-                                title="Cancelar edición"
-                              >
-                                <X size={16} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <Link
-                                to={`/vista-previa/${id}/${response.id}`}
-                                className="text-blue-600 hover:text-blue-800 transition-colors"
-                                title="Editar en formulario"
-                              >
-                                <Eye size={16} />
-                              </Link>
-                              <button
-                                onClick={() => startEditing(response.id)}
-                                className="text-blue-600 hover:text-blue-800 transition-colors"
-                                title="Editar en tabla"
-                              >
-                                <Edit2 size={16} />
-                              </button>
-                              <button
-                                onClick={() => setResponseToDelete(response.id)}
-                                className="text-red-600 hover:text-red-800 transition-colors"
-                                title="Eliminar respuesta"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                        {showFilters && (
+                          <div className="mt-2">
+                            {renderQuestionFilter(question)}
+                          </div>
+                        )}
+                      </div>
+                    </th>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                
+                <th className="py-3 px-4 border-b text-center text-xs font-medium text-gray-500 uppercase tracking-wider sticky right-0 bg-gray-100 z-20">
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            
+            <tbody className="divide-y divide-gray-200">
+              {filteredAndSortedResponses.map((response) => {
+                const completionPercentage = calculateCompletionPercentage(response);
+                const completionColorClass = getCompletionColor(completionPercentage);
+
+                return (
+                  <tr key={response.id} className="hover:bg-gray-50">
+                    <td className="py-3 px-4 text-sm border-b sticky left-0 bg-white z-10">
+                      <div className="flex flex-col">
+                        <span className="font-medium">
+                          {formatDateDisplay(response.createdAt)}
+                        </span>
+                        <span className="text-sm text-gray-600 mt-1">
+                          {response.username || 'Usuario Anónimo'}
+                        </span>
+                        <span className={`text-xs mt-1 px-2 py-1 rounded-full ${completionColorClass}`}>
+                          {completionPercentage}% completo
+                        </span>
+                        {response.updatedOffline && (
+                          <span className="text-xs mt-1 px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full">
+                            Offline
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {visibleQuestions.map((question) => (
+                      <td key={question.id} className="py-3 px-4 text-sm text-gray-800 border-b">
+                        {editingResponse === response.id ? (
+                          renderEditableCell(question, response.id)
+                        ) : (
+                          <div className="max-w-xs truncate" title={getFormattedResponseValue(question.id, response)}>
+                            {getFormattedResponseValue(question.id, response)}
+                          </div>
+                        )}
+                      </td>
+                    ))}
+
+                    <td className="py-3 px-4 text-sm border-b sticky right-0 bg-white z-10">
+                      <div className="flex justify-center items-center space-x-2">
+                        {editingResponse === response.id ? (
+                          <>
+                            <button
+                              onClick={handleSaveEdit}
+                              className="text-green-600 hover:text-green-800 transition-colors"
+                              title="Guardar cambios"
+                            >
+                              <Save size={16} />
+                            </button>
+                            <button
+                              onClick={cancelEditing}
+                              className="text-gray-600 hover:text-gray-800 transition-colors"
+                              title="Cancelar edición"
+                            >
+                              <X size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <Link
+                              to={`/vista-previa/${id}/${response.id}`}
+                              className="text-blue-600 hover:text-blue-800 transition-colors"
+                              title="Editar en formulario"
+                            >
+                              <Eye size={16} />
+                            </Link>
+                            <button
+                              onClick={() => startEditing(response.id)}
+                              className="text-blue-600 hover:text-blue-800 transition-colors"
+                              title="Editar en tabla"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              onClick={() => setResponseToDelete(response.id)}
+                              className="text-red-600 hover:text-red-800 transition-colors"
+                              title="Eliminar respuesta"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ConfirmDialog

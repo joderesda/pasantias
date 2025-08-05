@@ -33,15 +33,17 @@ const Navbar: React.FC = () => {
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row items-center justify-between">
           {/* Logo and title */}
-          <div className="py-3 flex items-center">
-            <img
-              src="/logo-odec.jpeg"
-              alt="ODEC Logo"
-              className="h-10 w-auto object-contain mr-4"
-            />
+          <div className="flex items-center">
+            <div className="bg-white rounded-full h-20 w-20 p-1 mr-4 flex items-center justify-center flex-shrink-0">
+              <img
+                src="/logo-odec.jpeg"
+                alt="ODEC Logo"
+                className="h-16 w-16 object-contain"
+              />
+            </div>
             <div className="flex flex-col">
               <span className="font-display text-xl font-bold leading-tight">
-                {t('app_title')}
+                Observatorio de Convivencia y Seguridad Ciudadana del Magdalena
               </span>
               <span className="text-xs text-white/70 hidden md:block">
                 Sistema de Gestión de Formularios

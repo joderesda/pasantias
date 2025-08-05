@@ -47,6 +47,11 @@ try {
         $authRoutes = new AuthRoutes();
         $authRoutes->handleRequest($method, '/' . $matches[1]);
         
+    } elseif ($uri === '/forms/stats/weekly') {
+        // Weekly form stats route
+        $formsRoutes = new FormsRoutes();
+        $formsRoutes->handleRequest($method, 'stats/weekly');
+        
     } elseif (preg_match('#^/forms/([^/]+)/responses$#', $uri, $matches)) {
         // Form responses routes
         $responsesRoutes = new ResponsesRoutes();
@@ -55,12 +60,12 @@ try {
     } elseif (preg_match('#^/forms/([^/]+)$#', $uri, $matches)) {
         // Single form routes
         $formsRoutes = new FormsRoutes();
-        $formsRoutes->handleRequest($method, '/forms', $matches[1]);
+        $formsRoutes->handleRequest($method, null, $matches[1]);
         
     } elseif ($uri === '/forms') {
         // Forms collection routes
         $formsRoutes = new FormsRoutes();
-        $formsRoutes->handleRequest($method, '/forms');
+        $formsRoutes->handleRequest($method, null);
         
     } elseif ($uri === '/responses/import') {
         // Import responses
