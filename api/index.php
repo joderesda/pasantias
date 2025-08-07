@@ -58,9 +58,18 @@ try {
         $responsesRoutes->handleRequest($method, '/form-responses', $matches[1]);
         
     } elseif (preg_match('#^/forms/([^/]+)$#', $uri, $matches)) {
-        // Single form routes
+        // Single form routes - Permitir acceso anónimo para GET
         $formsRoutes = new FormsRoutes();
-        $formsRoutes->handleRequest($method, null, $matches[1]);
+        if ($method === 'GET') {
+            // Para peticiones GET, no requerir autenticación
+            $formsRoutes->handleRequest($method, null, $matches[1]);
+        } else {
+            // Para otros métodos (PUT, DELETE) requerir autenticación
+            require_once __DIR__ . '/middleware/auth.php';
+            $auth = new AuthMiddleware();
+            $user = $auth->authenticate();
+            $formsRoutes->handleRequest($method, null, $matches[1]);
+        }
         
     } elseif ($uri === '/forms') {
         // Forms collection routes

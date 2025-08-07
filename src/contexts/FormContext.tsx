@@ -140,10 +140,10 @@ const formReducer = (state: FormContextState, action: FormAction): FormContextSt
 };
 
 // Definición del contexto
-interface FormContextProps extends FormContextState {
+interface FormContextProps extends Omit<FormContextState, 'responses'> {
   user: User | null;
   loadForms: () => Promise<void>;
-  loadForm: (id: string) => Promise<void>;
+  loadForm: (id: string, isPublic?: boolean) => Promise<Form>;
   loadResponses: (formId: string) => Promise<void>;
   saveForm: (form: Omit<Form, 'id' | 'createdAt' | 'updatedAt' | 'version'> & { id?: string }) => Promise<string>;
   deleteForm: (id: string) => Promise<void>;
@@ -213,25 +213,85 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
   /**
    * Carga un formulario específico por ID
    */
-  const loadForm = useCallback(async (id: string) => {
+  const loadForm = useCallback(async (id: string, isPublic: boolean = false) => {
+    console.log('Iniciando carga de formulario:', { id, isPublic });
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      const response = await fetch(`${API_BASE}/forms/${id}`, {
-        credentials: 'include'
+      const options: RequestInit = {
+        // No incluir credenciales para peticiones públicas
+        credentials: isPublic ? 'omit' : 'include'
+      };
+      
+      const url = `${API_BASE}/forms/${id}`;
+      console.log('URL de la petición:', url);
+      
+      const response = await fetch(url, options);
+      console.log('Respuesta del servidor:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
       });
       
       if (!response.ok) {
+        // Si es un error 401 y es una petición pública, lanzar error específico
+        if (response.status === 401) {
+          console.log('Error 401 - No autorizado');
+          if (isPublic) {
+            throw new Error(t('form_requires_authentication'));
+          } else {
+            // Si no es pública y da 401, redirigir al login
+            console.log('Redirigiendo a login...');
+            window.location.href = '/login';
+            return Promise.reject(new Error('Unauthorized'));
+          }
+        }
+        console.error('Error en la respuesta:', await response.text().catch(() => 'No se pudo leer el cuerpo de la respuesta'));
         throw new Error(t('form_not_found'));
       }
       
-      const backendForm = await response.json();
+      const backendForm = await response.json().catch(error => {
+        console.error('Error al parsear la respuesta JSON:', error);
+        throw new Error(t('error_parsing_response'));
+      });
+      
+      console.log('Datos del formulario recibidos:', backendForm);
+      
+      if (!backendForm) {
+        console.error('La respuesta del servidor está vacía');
+        throw new Error(t('form_not_found'));
+      }
+      
       const transformedForm = transformFormFromBackend(backendForm);
-      dispatch({ type: 'SET_CURRENT_FORM', payload: transformedForm });
+      console.log('Formulario transformado:', transformedForm);
+      
+      // Solo actualizar el estado del formulario actual si el ID coincide
+      if (transformedForm.id === id) {
+        console.log('Actualizando formulario actual en el estado');
+        dispatch({ type: 'SET_CURRENT_FORM', payload: transformedForm });
+      } else {
+        console.warn('El ID del formulario transformado no coincide con el solicitado', {
+          requestedId: id,
+          receivedId: transformedForm.id
+        });
+      }
+      
+      return transformedForm; // Devolver el formulario cargado
     } catch (error: any) {
-      console.error('Error loading form:', error);
-      dispatch({ type: 'SET_ERROR', payload: error.message });
-      toast.error(t('error_loading_form'));
+      console.error('Error en loadForm:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        isPublic
+      });
+      
+      // No mostrar error de "formulario no encontrado" para peticiones públicas
+      // para evitar revelar información sobre formularios que podrían existir
+      if (!isPublic || error.message !== t('form_requires_authentication')) {
+        dispatch({ type: 'SET_ERROR', payload: error.message });
+        toast.error(error.message || t('error_loading_form'));
+      }
+      throw error; // Relanzar el error para manejarlo en el componente
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
@@ -380,18 +440,17 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
       
-      // Prepara los datos de la respuesta
-      const responseToSave = {
-        ...(responseId && { id: responseId }),
-        formId: responseData.formId,
-        formVersion: responseData.formVersion,
-        responses: responseData.responses,
-        updatedOffline: responseData.updatedOffline || false,
-        userId: responseData.userId,
-        username: responseData.username,
+      // Transforma los datos al formato esperado por el backend
+      const requestData = {
+        formId: response.formId,
+        formVersion: response.formVersion,
+        responses: response.responses,
+        updatedOffline: response.updatedOffline,
+        userId: response.userId || user?.id || 'anonymous',
+        username: response.username || user?.username || 'Anonymous User'
       };
       
-      console.log('Guardando respuesta:', responseToSave);
+      console.log('Guardando respuesta:', requestData);
       
       let url = `${API_BASE}/responses`;
       let method = 'POST';
@@ -402,24 +461,45 @@ export const FormProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method = 'PUT';
       }
       
-      const response = await fetch(url, {
+      console.log('Enviando solicitud a:', url);
+      console.log('Método:', method);
+      
+      const fetchResponse = await fetch(url, {
         method,
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(responseToSave)
+        body: JSON.stringify(requestData)
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || t('error_saving_response'));
+      console.log('Respuesta del servidor:', {
+        status: fetchResponse.status,
+        statusText: fetchResponse.statusText,
+        headers: Object.fromEntries(fetchResponse.headers.entries())
+      });
+      
+      const responseBody = await fetchResponse.text();
+      console.log('Cuerpo de la respuesta:', responseBody);
+      
+      if (!fetchResponse.ok) {
+        let errorMessage = 'Error desconocido';
+        try {
+          const errorData = responseBody ? JSON.parse(responseBody) : {};
+          errorMessage = errorData.message || errorData.error || t('error_saving_response');
+        } catch (e) {
+          errorMessage = responseBody || t('error_saving_response');
+        }
+        throw new Error(errorMessage);
       }
       
-      const result = await response.json();
+      const result = responseBody ? JSON.parse(responseBody) : {};
       
       // Actualiza el estado local
       const savedResponse = transformResponseFromBackend(result.response || result);
+      
+      console.log('Respuesta guardada exitosamente:', savedResponse);
       if (responseId) {
         dispatch({ type: 'UPDATE_RESPONSE', payload: savedResponse });
       } else {

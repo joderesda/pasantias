@@ -28,7 +28,12 @@ class ResponsesRoutes {
             date('Y-m-d H:i:s'), $method, $path, $formId ?? 'null', $responseId ?? 'null'
         );
         file_put_contents($handle_log, $log_info, FILE_APPEND);
-        $user = $this->auth->authenticate();
+        
+        // Skip authentication for public form submissions
+        $isPublicFormSubmission = ($method === 'POST' && $path === '/responses');
+        $user = $isPublicFormSubmission 
+            ? ['id' => 'anonymous', 'role' => 'public', 'username' => 'Anonymous User']
+            : $this->auth->authenticate();
 
         if ($formId && $method === 'GET') {
             $this->getFormResponses($formId, $user);
@@ -40,6 +45,16 @@ class ResponsesRoutes {
             $this->updateResponse($responseId, $user);
         } elseif ($method === 'DELETE' && $responseId) {
             $this->deleteResponse($responseId, $user);
+        } elseif ($method === 'GET' && strpos($path, '/export') !== false) {
+            // Extraer el formId de la ruta (ej: /forms/123/responses/export -> 123)
+            $pathParts = explode('/', $path);
+            if (count($pathParts) >= 4 && $pathParts[0] === '' && $pathParts[2] === 'responses' && $pathParts[3] === 'export') {
+                $formId = $pathParts[1];
+                require_once __DIR__ . '/../controllers/ExportController.php';
+                $exportController = new ExportController();
+                $exportController->exportResponses($formId);
+                return;
+            }
         } else {
             http_response_code(404);
             echo json_encode(['message' => 'Route not found']);
@@ -127,12 +142,15 @@ class ResponsesRoutes {
             return false;
         }
         try {
-            // Ensure user_id exists in the users table to satisfy foreign key constraints
-            $stmt_check = $this->db->prepare("SELECT id FROM users WHERE id = ?");
-            $stmt_check->execute([$userId]);
-            if ($stmt_check->rowCount() === 0) {
-                error_log("Error saving single response: User with ID '$userId' not found.");
-                return false;
+            // For anonymous users, we don't need to check if the user exists
+            if ($userId !== 'anonymous') {
+                // Ensure user_id exists in the users table to satisfy foreign key constraints
+                $stmt_check = $this->db->prepare("SELECT id FROM users WHERE id = ?");
+                $stmt_check->execute([$userId]);
+                if ($stmt_check->rowCount() === 0) {
+                    error_log("Error saving single response: User with ID '$userId' not found.");
+                    return false;
+                }
             }
 
             $sql = "INSERT INTO responses (id, form_id, form_version, responses, user_id, created_at, updated_offline) VALUES (UUID(), ?, ?, ?, ?, " . ($createdAt ? "FROM_UNIXTIME(?)" : "NOW()") . ", ?)";
@@ -162,6 +180,17 @@ class ResponsesRoutes {
         $responses = $input['responses'] ?? [];
         $updatedOffline = $input['updatedOffline'] ?? false;
         $createdAt = $input['createdAt'] ?? null;
+        
+        // For public forms, we need to ensure the form exists and is public
+        if ($user['role'] === 'public') {
+            $stmt = $this->db->prepare("SELECT id FROM forms WHERE id = ? AND is_public = 1");
+            $stmt->execute([$formId]);
+            if ($stmt->rowCount() === 0) {
+                http_response_code(403);
+                echo json_encode(['message' => 'Form is not public or does not exist']);
+                return;
+            }
+        }
 
         if (!$this->saveSingleResponse($formId, $formVersion, $responses, $user['id'], $updatedOffline, $createdAt)) {
             http_response_code(400);

@@ -1,5 +1,20 @@
 // Tipos de pregunta disponibles
-export type QuestionType = 'text' | 'number' | 'select' | 'multiselect' | 'date' | 'boolean' | 'time';
+export type QuestionType = 
+  | 'text' 
+  | 'number' 
+  | 'select' 
+  | 'multiselect' 
+  | 'date' 
+  | 'boolean' 
+  | 'time'
+  | 'textarea'
+  | 'radio'
+  | 'checkbox'
+  | 'email'
+  | 'tel'
+  | 'url'
+  | 'range'
+  | 'rating';
 
 // Roles de usuario
 export type UserRole = 'admin' | 'user' | 'analista' | 'invitado';
@@ -26,7 +41,19 @@ export interface Question {
   text: string;
   type: QuestionType;
   options?: Option[];
-  required: boolean;
+  required?: boolean;
+  description?: string;
+  placeholder?: string;
+  min?: string | number;
+  max?: string | number;
+  step?: number;
+  suffix?: string;
+  validation?: {
+    min?: number;
+    max?: number;
+    step?: number;
+    pattern?: string;
+  };
   includeInPowerBI: boolean;
   powerBIFieldName?: string;
   parentId?: string;

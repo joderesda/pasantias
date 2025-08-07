@@ -4,95 +4,65 @@ import { useForm } from '../contexts/FormContext';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'react-hot-toast';
 import Spinner from '../components/ui/Spinner';
-import FormFieldRenderer from '../components/forms/FormFieldRenderer';
-import { Form, FormResponse, Question } from '../types';
+import FormPreview from '../components/forms/FormPreview';
+import { Form } from '../types';
 
 const PublicFormPage: React.FC = () => {
-  const { formId } = useParams<{ formId: string }>();
-  const { loadForm, saveResponse } = useForm();
+  const { formId, responseId } = useParams<{ formId: string; responseId?: string }>();
+  const { loadForm } = useForm();
   const [form, setForm] = useState<Form | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState<Record<string, any>>({});
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchForm = async () => {
-      if (!formId) return;
+      if (!formId) {
+        console.log('No se proporcionó un ID de formulario');
+        navigate('/');
+        return;
+      }
       
       try {
+        console.log('Cargando formulario público:', formId);
         setIsLoading(true);
-        const formData = await loadForm(formId);
+        
+        // Forzar el parámetro isPublic a true explícitamente
+        const formData = await loadForm(formId, true);
+        console.log('Formulario cargado:', formData ? 'éxito' : 'vacío');
         
         if (formData && 'questions' in formData) {
           setForm(formData);
-          
-          // Initialize form data with empty values
-          const initialData: Record<string, any> = {};
-          formData.questions?.forEach((question: Question) => {
-            initialData[question.id] = question.type === 'checkbox' ? [] : '';
-          });
-          setFormData(initialData);
         } else {
-          throw new Error('Form not found');
+          console.error('Formulario no tiene preguntas o no es válido');
+          throw new Error(t('form_not_found') || 'Formulario no encontrado');
         }
-      } catch (error) {
-        console.error('Error loading form:', error);
-        toast.error(t('error_loading_form'));
-        navigate('/');
+      } catch (error: any) {
+        console.error('Error al cargar el formulario:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+        
+        // Mostrar mensaje de error solo si no es un error de autenticación
+        if (error.message !== t('form_requires_authentication')) {
+          toast.error(error.message || t('error_loading_form') || 'Error al cargar el formulario');
+        }
+        
+        // No redirigir automáticamente, mostrar el error en la página
+        setForm(null);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchForm();
-  }, [formId, loadForm, navigate, t]);
-
-  const handleChange = (questionId: string, value: string | string[]) => {
-    setFormData(prev => ({
-      ...prev,
-      [questionId]: value
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
     
-    if (!form || !formId) return;
-    
-    try {
-      setIsSubmitting(true);
-      
-      // Prepare response data
-      const responseData: Omit<FormResponse, 'id' | 'createdAt'> = {
-        formId,
-        formVersion: form.version || 1,
-        responses: Object.entries(formData).map(([questionId, value]) => ({
-          questionId,
-          value
-        })),
-        userId: 'anonymous',
-        username: 'Anonymous User',
-        updatedOffline: false,
-        // Add any other required fields from FormResponse type
-      };
-      
-      // Save response
-      await saveResponse(responseData, undefined);
-      
-      // Show success message
-      toast.success(t('response_submitted') || 'Response submitted successfully');
-      
-      // Redirect to thank you page or home
-      navigate('/gracias');
-    } catch (error) {
-      console.error('Error submitting form:', error);
-      toast.error(t('error_submitting_form') || 'Error submitting form');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    // Limpiar al desmontar
+    return () => {
+      setForm(null);
+    };
+  }, [formId, loadForm, t]);
 
   if (isLoading) {
     return (
@@ -119,6 +89,22 @@ const PublicFormPage: React.FC = () => {
     );
   }
 
+  if (!formId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">{t('form_not_found')}</h1>
+          <button 
+            onClick={() => navigate('/')} 
+            className="mt-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+          >
+            {t('back_to_home') || 'Back to Home'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
@@ -129,29 +115,9 @@ const PublicFormPage: React.FC = () => {
               <p className="text-gray-600 mb-6">{form.description}</p>
             )}
             
-            <form onSubmit={handleSubmit}>
-              <div className="space-y-6">
-                {form.questions?.map((question: Question) => (
-                  <FormFieldRenderer
-                    key={question.id}
-                    question={question}
-                    value={formData[question.id]}
-                    onChange={(value) => handleChange(question.id, value)}
-                    disabled={isSubmitting}
-                  />
-                ))}
-                
-                <div className="pt-4">
-                  <button
-                    type="submit"
-                    className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (t('submitting') || 'Submitting...') : (t('submit_form') || 'Submit')}
-                  </button>
-                </div>
-              </div>
-            </form>
+            <div key={formId} className="w-full">
+              <FormPreview formId={formId} />
+            </div>
           </div>
         </div>
         

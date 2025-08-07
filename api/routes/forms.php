@@ -19,7 +19,18 @@ class FormsRoutes {
      * Handle forms routes
      */
     public function handleRequest($method, $path, $id = null) {
-        $user = $this->auth->authenticate();
+        // No requerir autenticación para peticiones GET a formularios individuales
+        // La autenticación se maneja en el enrutador (index.php)
+        $user = null;
+        
+        // Iniciar sesión si hay un usuario autenticado
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        
+        if (isset($_SESSION['user'])) {
+            $user = $_SESSION['user'];
+        }
 
         if ($path === 'stats/weekly') {
             if ($method === 'GET') {

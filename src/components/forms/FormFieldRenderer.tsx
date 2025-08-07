@@ -1,11 +1,9 @@
 import React from 'react';
-import type { Question, QuestionType } from '../../types';
-
-// Extender el tipo QuestionType para incluir los tipos adicionales
-type ExtendedQuestionType = QuestionType | 'textarea' | 'radio' | 'checkbox';
+import type { Question } from '../../types';
+import { Star } from 'lucide-react';
 
 interface FormFieldRendererProps {
-  question: Omit<Question, 'type'> & { type: ExtendedQuestionType };
+  question: Question;
   value: any;
   onChange: (value: any) => void;
   disabled?: boolean;
@@ -20,19 +18,55 @@ const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({
   const renderInputField = () => {
     switch (question.type) {
       case 'text':
+      case 'email':
+      case 'tel':
+      case 'url':
         return (
           <input
-            type="text"
+            type={question.type}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
             required={question.required}
+            placeholder={question.placeholder}
           />
         );
       
-      // For textarea, we'll use a text input for now since TEXTAREA is not in QuestionType
-      // You might want to add TEXTAREA to QuestionType if needed
+      case 'number':
+        return (
+          <input
+            type="number"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.valueAsNumber || '')}
+            disabled={disabled}
+            required={question.required}
+            min={question.validation?.min}
+            max={question.validation?.max}
+            step={question.validation?.step || 'any'}
+          />
+        );
+      
+      case 'range':
+        return (
+          <div className="w-full">
+            <input
+              type="range"
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              value={value || 0}
+              onChange={(e) => onChange(Number(e.target.value))}
+              disabled={disabled}
+              min={question.validation?.min || 0}
+              max={question.validation?.max || 100}
+              step={question.validation?.step || 1}
+            />
+            <div className="text-sm text-gray-600 mt-1">
+              {value || 0} {question.suffix || ''}
+            </div>
+          </div>
+        );
+      
       case 'textarea':
         return (
           <textarea
@@ -50,7 +84,7 @@ const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({
           <select
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={value || ''}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value || null)}
             disabled={disabled}
             required={question.required}
           >
@@ -153,6 +187,53 @@ const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({
           </div>
         );
       
+      case 'boolean':
+        return (
+          <div className="flex items-center space-x-4">
+            <label className="inline-flex items-center">
+              <input
+                type="radio"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                checked={value === true}
+                onChange={() => onChange(true)}
+                disabled={disabled}
+              />
+              <span className="ml-2">Sí</span>
+            </label>
+            <label className="inline-flex items-center">
+              <input
+                type="radio"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                checked={value === false}
+                onChange={() => onChange(false)}
+                disabled={disabled}
+              />
+              <span className="ml-2">No</span>
+            </label>
+          </div>
+        );
+        
+      case 'rating':
+        return (
+          <div className="flex items-center">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                className="p-1 focus:outline-none"
+                onClick={() => !disabled && onChange(star)}
+                disabled={disabled}
+              >
+                {value >= star ? (
+                  <Star className="w-6 h-6 text-yellow-400 fill-current" />
+                ) : (
+                  <Star className="w-6 h-6 text-gray-300" />
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      
       case 'date':
         return (
           <input
@@ -162,6 +243,21 @@ const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}
             required={question.required}
+            min={question.min}
+            max={question.max}
+          />
+        );
+      
+      case 'time':
+        return (
+          <input
+            type="time"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            required={question.required}
+            step={question.step || 60} // Por defecto, pasos de 1 minuto
           />
         );
       

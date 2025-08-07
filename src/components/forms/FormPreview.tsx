@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from '../../contexts/FormContext';
 import { FormResponse, QuestionResponse, Question } from '../../types';
@@ -9,15 +9,18 @@ import { ArrowLeft, Save, Download, Upload } from 'lucide-react';
 import { generateOfflineForm } from '../../utils/offlineFormUtils';
 import { readOfflineResponseFile } from '../../utils/excelUtils';
 
-const FormPreview: React.FC = () => {
-  const { id, responseId } = useParams<{ id: string; responseId?: string }>();
+interface FormPreviewProps {
+  formId: string;
+  responseId?: string;
+}
+
+const FormPreview: React.FC<FormPreviewProps> = ({ formId, responseId }) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { 
     loadForm, 
     currentForm, 
     saveResponse, 
-    responses, 
     loadResponses, 
     isLoading,
     importResponses,
@@ -32,10 +35,10 @@ const FormPreview: React.FC = () => {
   useEffect(() => {
     const loadFormData = async () => {
       try {
-        if (id) {
-          await loadForm(id);
+        if (formId) {
+          await loadForm(formId);
           if (responseId) {
-            await loadResponses(id);
+            await loadResponses(formId);
           }
         }
       } catch (error) {
@@ -46,20 +49,35 @@ const FormPreview: React.FC = () => {
     };
 
     loadFormData();
-  }, [id, responseId]);
+  }, [formId, responseId, loadForm, loadResponses, t, navigate]);
 
+  // Cargar respuesta existente si hay un responseId
   useEffect(() => {
-    if (responseId && responses[id!]) {
-      const existingResponse = responses[id!].find(r => r.id === responseId);
-      if (existingResponse) {
-        const responseMap: Record<string, any> = {};
-        existingResponse.responses.forEach(response => {
-          responseMap[response.questionId] = response.value;
-        });
-        setResponses(responseMap);
+    const loadExistingResponse = async () => {
+      if (responseId && formId) {
+        try {
+          const response = await fetch(`${process.env.REACT_APP_API_URL}/responses/${responseId}`, {
+            credentials: 'include'
+          });
+          
+          if (response.ok) {
+            const responseData = await response.json();
+            if (responseData && responseData.responses) {
+              const responseMap: Record<string, any> = {};
+              responseData.responses.forEach((r: any) => {
+                responseMap[r.questionId] = r.value;
+              });
+              setResponses(responseMap);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading response:', error);
+        }
       }
-    }
-  }, [responseId, responses, id]);
+    };
+
+    loadExistingResponse();
+  }, [responseId, formId]);
 
   // Función recursiva mejorada para obtener preguntas visibles incluyendo subpreguntas anidadas
   const getVisibleQuestions = (): Question[] => {
@@ -160,7 +178,7 @@ const FormPreview: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!currentForm || !id) return;
+    if (!currentForm || !formId) return;
     
     if (!validateForm()) {
       toast.error(t('Por favor, completa todos los campos obligatorios'));
@@ -181,17 +199,19 @@ const FormPreview: React.FC = () => {
         }));
       
       const formResponse: Omit<FormResponse, 'id' | 'createdAt'> = {
-        formId: id,
+        formId: formId,
         formVersion: currentForm.version,
         responses: questionResponses,
         updatedOffline: false,
-        userId: user?.id || '',
-        username: user?.username || ''
+        userId: user?.id || 'anonymous',
+        username: user?.username || 'Usuario Anónimo'
       };
       
       await saveResponse(formResponse, responseId);
       toast.success(t('Respuestas guardadas correctamente'));
-      navigate(`/respuestas/${id}`);
+      
+      // Navegar a la lista de respuestas del formulario
+      navigate(`/formularios/${formId}/respuestas`);
     } catch (error) {
       console.error('Error saving response:', error);
       toast.error(t('Error al guardar las respuestas'));
@@ -201,7 +221,7 @@ const FormPreview: React.FC = () => {
   };
 
   const handleExportBlank = async () => {
-    if (!currentForm) return;
+    if (!currentForm || !formId) return;
     
     try {
       const htmlContent = await generateOfflineForm(currentForm);
@@ -224,11 +244,11 @@ const FormPreview: React.FC = () => {
   // Función CORREGIDA para importar respuestas - ESTRUCTURA EXACTA PARA PHP
   const handleImportOfflineResponses = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !currentForm || !id) return;
+    if (!file || !currentForm || !formId) return;
     
     try {
       setImporting(true);
-      console.log('🚀 Importando respuestas para formulario:', id);
+      console.log('🚀 Importando respuestas para formulario:', formId);
       
       // 1. Leer el archivo Excel y procesar las respuestas
       const processedResponses = await readOfflineResponseFile(file, currentForm);
@@ -242,7 +262,7 @@ const FormPreview: React.FC = () => {
       // 3. Preparar el payload EXACTO que espera el backend PHP
       // Según el código PHP, espera: { formId: string, responses: array }
       const payload = {
-        formId: id, // ✅ ID del formulario actual
+        formId: formId, // ✅ ID del formulario actual
         responses: processedResponses.map(response => ({
           form_version: response.formVersion || currentForm.version,
           responses: response.responses.map(r => ({
@@ -261,7 +281,7 @@ const FormPreview: React.FC = () => {
       toast.success(`${processedResponses.length} respuesta(s) importada(s) correctamente`);
       
       // 5. Recargar respuestas para mostrar las nuevas
-      await loadResponses(id);
+      await loadResponses(formId);
       
     } catch (error) {
       console.error('❌ Error en importación:', error);

@@ -19,9 +19,11 @@ const FormsList: React.FC = () => {
     loadForms,       // Función para cargar formularios
     deleteForm,      // Función para eliminar formularios
     isLoading,       // Estado de carga
-    responses,       // Respuestas cargadas
-    loadResponses    // Función para cargar respuestas
+    exportFormResponses // Función para exportar respuestas
   } = useForm();
+  
+  // Estado local para almacenar los contadores de respuestas
+  const [responseCounts, setResponseCounts] = useState<Record<string, number>>({});
 
   const { user } = useAuth(); // Datos del usuario autenticado
   const { t } = useTranslation(); // Función de traducción
@@ -30,7 +32,6 @@ const FormsList: React.FC = () => {
   const [formToDelete, setFormToDelete] = useState<string | null>(null); // ID del formulario a eliminar
   const [sharingForm, setSharingForm] = useState<{id: string, name: string} | null>(null); // Formulario a compartir
   const [searchTerm, setSearchTerm] = useState(''); // Término de búsqueda
-  const [responsesLoaded, setResponsesLoaded] = useState<Set<string>>(new Set()); // Track which forms have responses loaded
 
   // ======================
   // EFECTOS SECUNDARIOS
@@ -41,26 +42,29 @@ const FormsList: React.FC = () => {
     loadForms();
   }, [loadForms]); // Solo se ejecuta una vez al montar
 
-  // Función memoizada para cargar respuestas
-  const loadResponsesForForm = useCallback(async (formId: string) => {
-    if (!responsesLoaded.has(formId)) {
-      try {
-        await loadResponses(formId);
-        setResponsesLoaded(prev => new Set(prev).add(formId));
-      } catch (error) {
-        console.error(`Error loading responses for form ${formId}:`, error);
-      }
+  // Función para cargar el conteo de respuestas para un formulario
+  const loadResponseCount = useCallback(async (formId: string) => {
+    try {
+      const responses = await exportFormResponses(formId);
+      setResponseCounts(prev => ({
+        ...prev,
+        [formId]: responses.length
+      }));
+    } catch (error) {
+      console.error(`Error loading response count for form ${formId}:`, error);
+      setResponseCounts(prev => ({
+        ...prev,
+        [formId]: 0
+      }));
     }
-  }, [loadResponses, responsesLoaded]);
+  }, [exportFormResponses]);
 
-  // Carga las respuestas para cada formulario (solo una vez por formulario)
+  // Carga los contadores de respuestas para cada formulario
   useEffect(() => {
     forms.forEach(form => {
-      if (!responsesLoaded.has(form.id)) {
-        loadResponsesForForm(form.id);
-      }
+      loadResponseCount(form.id);
     });
-  }, [forms, loadResponsesForForm]);
+  }, [forms, loadResponseCount]);
 
   // ======================
   // FUNCIONES UTILITARIAS
@@ -72,7 +76,7 @@ const FormsList: React.FC = () => {
    * @returns Número de respuestas
    */
   const getResponseCount = (formId: string) => {
-    return responses[formId]?.length || 0;
+    return responseCounts[formId] || 0;
   };
 
   // ======================
